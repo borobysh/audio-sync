@@ -1,0 +1,26 @@
+{
+  "name": "audio-sync",
+  "version": "1.0.0",
+  "description": "Headless, cross-tab audio synchronization library for React and Vanilla JS. Features built-in Leader Election and state-syncing via BroadcastChannel API.",
+  "main": "index.js",
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "dev": "npm run dev --workspaces"
+  },
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/borobysh/audio-sync.git"
+  },
+  "keywords": [],
+  "author": "borobysh",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/borobysh/audio-sync/issues"
+  },
+  "homepage": "https://github.com/borobysh/audio-sync#readme"
+}

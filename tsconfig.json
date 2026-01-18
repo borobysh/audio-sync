@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "lib": [
+      "DOM",
+      "DOM.Iterable",
+      "ESNext"
+    ],
+    "strict": true,
+    "declaration": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@borobysh/audio-sync-core": [
+        "packages/core/src/index.ts"
+      ]
+    }
+  }
+}
