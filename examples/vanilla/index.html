@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Sync Playground</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background: #121212;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .card {
+            background: #1e1e1e;
+            padding: 2rem;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            width: 360px;
+            text-align: center;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+        }
+
+        .status-leader {
+            background: #4caf50;
+            color: white;
+        }
+
+        .status-follower {
+            background: #2196f3;
+            color: white;
+        }
+
+        h2 {
+            margin: 0 0 10px 0;
+            font-size: 1.2rem;
+        }
+
+        p {
+            color: #b3b3b3;
+            font-size: 14px;
+            margin-bottom: 20px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background: #333;
+            border: none;
+            color: white;
+            padding: 10px 16px;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: 0.2s;
+            font-weight: 600;
+        }
+
+        button:hover {
+            background: #444;
+        }
+
+        button#play {
+            background: #1db954;
+            color: black;
+        }
+
+        button#play:hover {
+            background: #1ed760;
+        }
+
+        .playlist {
+            text-align: left;
+            margin-top: 20px;
+            border-top: 1px solid #333;
+            padding-top: 20px;
+        }
+
+        .track-item {
+            padding: 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-bottom: 4px;
+            background: #282828;
+            transition: 0.2s;
+        }
+
+        .track-item:hover {
+            background: #333;
+        }
+
+        .track-item.active {
+            background: #1db954;
+            color: black;
+        }
+
+        .info {
+            background: #282828;
+            padding: 10px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: #3e3e3e;
+            margin-top: 15px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        #progress-fill {
+            width: 0%;
+            height: 100%;
+            background: #1db954;
+            transition: width 0.1s linear;
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <div id="role-badge" class="status-badge status-follower">Waiting...</div>
+    <h2>Audio Sync MVP</h2>
+    <p id="track-name">Select track</p>
+
+    <div class="controls">
+        <button id="play">Play</button>
+        <button id="pause">Pause</button>
+    </div>
+
+    <div class="info">
+        Time: <span id="time">0.00</span>s
+    </div>
+
+    <div class="progress-bar">
+        <div id="progress-fill"></div>
+    </div>
+
+    <div class="playlist" id="playlist">
+        <div class="track-item" data-src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3">Track 1 -
+            Energy
+        </div>
+        <div class="track-item" data-src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3">Track 2 - Chill
+            Out
+        </div>
+        <div class="track-item" data-src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3">Track 3 - Deep
+            Vibes
+        </div>
+    </div>
+
+    <p style="font-size: 10px; margin-top: 20px; color: #666;">
+        Open this page in multiple tabs
+    </p>
+</div>
+
+<script type="module" src="./main.ts"></script>
+</body>
+</html>
