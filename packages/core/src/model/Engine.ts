@@ -1,43 +1,7 @@
-export type AudioError = {
-    message: string;
-    code: string | null;
-} | null;
+import { AudioEngineContract, AudioState, EngineEventType } from "./types/engine.types";
+import { DEFAULT_PLAYER_STATE } from "../config/engine.config";
 
-export type AudioState = {
-    isPlaying: boolean;
-    currentTime: number;
-    duration: number;
-    currentSrc: string | null;
-    volume: number;
-    error: AudioError;
-}
-
-export type EngineEventType =
-    | 'state_change'
-    | 'play'
-    | 'pause'
-    | 'seek'
-    | 'error';
-
-export interface AudioEngineContract {
-    state: AudioState;
-    on(event: EngineEventType, callback: Function): () => void;
-    updateState(patch: Partial<AudioState>): void;
-    play(src?: string): void;
-    pause(): void;
-    seek(time: number): void;
-}
-
-export const DEFAULT_PLAYER_STATE: AudioState = {
-    isPlaying: false,
-    currentTime: 0,
-    duration: 0,
-    currentSrc: null,
-    volume: 1,
-    error: null,
-};
-
-export class AudioEngine implements AudioEngineContract{
+export class Engine implements AudioEngineContract {
     private _state: AudioState = { ...DEFAULT_PLAYER_STATE };
     private _subscribers: Map<string, Set<Function>> = new Map();
 

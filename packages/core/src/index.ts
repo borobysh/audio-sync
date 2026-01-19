@@ -1,3 +1,3 @@
-import { AudioDriver } from "./model/AudioDriver";
+import { Driver } from "./model/Driver";
 
-export { AudioDriver }
+export { Driver }

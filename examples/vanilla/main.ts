@@ -1,6 +1,6 @@
-import { AudioDriver } from "../../packages/core/src";
+import { Driver } from "../../packages/core/src";
 
-const player = new AudioDriver();
+const player = new Driver();
 
 const playBtn = document.getElementById('play') as HTMLButtonElement;
 const pauseBtn = document.getElementById('pause') as HTMLButtonElement;

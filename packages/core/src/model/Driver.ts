@@ -1,30 +1,13 @@
-import { AudioEngine, AudioState, EngineEventType, AudioEngineContract } from "./AudioEngine";
+import { AudioElementContract } from "./types/driver.types";
+import { AudioEngineContract, AudioState, EngineEventType } from "./types/engine.types";
+import { Engine } from "./Engine";
 
-export type AudioElementContract = {
-    // state
-    src: string;
-    currentTime: number;
-    duration: number;
-    volume: number;
-
-    // methods
-    play(): Promise<void>;
-    pause(): void;
-
-    // handler events
-    ontimeupdate: ((this: any, ev: Event) => any) | null;
-    onplaying: ((this: any, ev: Event) => any) | null;
-    onpause: ((this: any, ev: Event) => any) | null;
-    onerror: ((this: any, ev: Event) => any) | null;
-    onended: ((this: any, ev: Event) => any) | null;
-}
-
-export class AudioDriver {
+export class Driver {
     private audio: AudioElementContract;
     private engine: AudioEngineContract;
 
     constructor(engine?: AudioEngineContract, audioElement?: AudioElementContract) {
-        this.engine = engine || new AudioEngine();
+        this.engine = engine || new Engine();
         this.audio = audioElement || (new Audio() as AudioElementContract);
 
         this._initEngineListeners();
