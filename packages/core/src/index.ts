@@ -37,6 +37,10 @@ export type {
     MediaPositionState,
     MediaSessionCallbacks
 } from "./model/types/mediaSession.types";
+export type {
+    PlaybackRateConfig,
+    PlaybackRateEventPayloads
+} from "./model/types/playbackRate.types";
 
 // Validated sync config types
 export type {

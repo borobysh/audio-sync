@@ -349,4 +349,30 @@ export class Driver extends AbstractDriver {
 
         trySeek();
     }
+
+    /**
+     * Set playback rate (speed)
+     * @param rate Playback rate (0.25 to 4.0)
+     */
+    public setPlaybackRate(rate: number): void {
+        if (typeof rate !== 'number' || !isFinite(rate)) {
+            logDriver('⚠️ Invalid playback rate:', rate);
+            return;
+        }
+
+        // Clamp to valid range (HTMLAudioElement supports 0.25 - 4.0)
+        const clampedRate = Math.max(0.25, Math.min(4.0, rate));
+        
+        try {
+            this.audio.playbackRate = clampedRate;
+            // Preserve pitch by default (HTML5 audio does this automatically)
+            if ('preservesPitch' in this.audio) {
+                (this.audio as any).preservesPitch = true;
+            }
+            this.engine.updateState({ playbackRate: clampedRate });
+            logDriver('✅ Set playback rate to', clampedRate);
+        } catch (err) {
+            logDriver('⚠️ Failed to set playback rate:', err);
+        }
+    }
 }

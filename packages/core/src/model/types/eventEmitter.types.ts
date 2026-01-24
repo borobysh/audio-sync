@@ -1,5 +1,6 @@
 import { SyncCoreState } from "./syncCore.types";
 import { PlaylistEventPayloads } from "./playlist.types";
+import { PlaybackRateEventPayloads } from "./playbackRate.types";
 
 /**
  * Event types emitted by AudioInstance
@@ -22,7 +23,8 @@ export type AudioInstanceEventType =
     | 'playlistQueueUpdated'      // Playlist queue updated
     | 'playlistEnded'             // Playlist ended
     | 'playlistRepeatModeChanged' // Playlist repeat mode changed
-    | 'playlistShuffleChanged';   // Playlist shuffle changed
+    | 'playlistShuffleChanged'    // Playlist shuffle changed
+    | 'playbackRateChange';       // Playback rate changed
 
 
 export type AudioInstanceEventData = {
@@ -44,4 +46,5 @@ export type AudioInstanceEventData = {
     playlistEnded: PlaylistEventPayloads['playlistEnded'];
     playlistRepeatModeChanged: PlaylistEventPayloads['repeatModeChanged'];
     playlistShuffleChanged: PlaylistEventPayloads['shuffleChanged'];
+    playbackRateChange: PlaybackRateEventPayloads['playbackRateChange'];
 };

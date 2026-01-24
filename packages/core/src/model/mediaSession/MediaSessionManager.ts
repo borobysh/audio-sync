@@ -165,11 +165,10 @@ export class MediaSessionManager {
 
         // Update position state
         if (state.currentTime !== undefined && state.duration !== undefined) {
-            // Note: playbackRate is not part of AudioState yet, defaulting to 1.0
             this.updatePositionState(
                 state.currentTime,
                 state.duration,
-                1.0
+                state.playbackRate ?? 1.0
             );
         }
     }

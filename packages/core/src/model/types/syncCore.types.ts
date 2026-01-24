@@ -5,10 +5,12 @@ export type SyncCoreState = AudioState & { isLeader: boolean }
 export type AudioEventType =
     | 'PLAY'
     | 'PAUSE'
+    | 'STOP'
     | 'STATE_UPDATE'
     | 'SYNC_REQUEST'
     | 'LEADERSHIP_CLAIM'
-    | 'LEADERSHIP_ACK';
+    | 'LEADERSHIP_ACK'
+    | 'PLAYBACK_RATE_CHANGE';
 
 export type LeadershipAction = 'play' | 'pause' | 'seek' | 'stop';
 
@@ -40,6 +42,8 @@ export type SyncConfig = Partial<{
     syncSeek: boolean;
     /** Sync track changes between tabs */
     syncTrackChange: boolean;
+    /** Sync playback rate (speed) changes between tabs */
+    syncPlaybackRate: boolean;
     /**
      * If true, only the leader tab plays audio, followers just track state.
      * If false, all tabs play audio simultaneously (synchronized).

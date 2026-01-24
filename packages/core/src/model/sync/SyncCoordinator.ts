@@ -191,7 +191,7 @@ export class SyncCoordinator {
                 }
 
                 // Track when we last heard from a leader
-                if (payload.isLeader && ['PLAY', 'PAUSE', 'STATE_UPDATE'].includes(type)) {
+                if (payload.isLeader && ['PLAY', 'PAUSE', 'STOP', 'STATE_UPDATE'].includes(type)) {
                     this._lastLeaderMessageTimestamp = Date.now();
                     
                     // If we were checking for a leader, notify callback
@@ -206,7 +206,7 @@ export class SyncCoordinator {
                 }
 
                 // If someone else becomes the leader (but NOT a remote command), we remove the crown
-                if (['PLAY', 'PAUSE', 'STATE_UPDATE'].includes(type) && payload.isLeader && !payload.isRemoteCommand) {
+                if (['PLAY', 'PAUSE', 'STOP', 'STATE_UPDATE'].includes(type) && payload.isLeader && !payload.isRemoteCommand) {
                     if (this._isLeader) {
                         this.setLeader(false);
                     }

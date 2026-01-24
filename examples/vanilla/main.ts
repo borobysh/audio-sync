@@ -141,6 +141,12 @@ const unmuteBtn = document.getElementById('unmute') as HTMLButtonElement;
 const seekInput = document.getElementById('seek-input') as HTMLInputElement;
 const seekBtn = document.getElementById('seek-btn') as HTMLButtonElement;
 
+// Playback rate controls
+const playbackRateDisplay = document.getElementById('playback-rate-display') as HTMLElement;
+const speedButtons = document.querySelectorAll('.speed-btn') as NodeListOf<HTMLButtonElement>;
+const speedDecreaseBtn = document.getElementById('speed-decrease') as HTMLButtonElement;
+const speedIncreaseBtn = document.getElementById('speed-increase') as HTMLButtonElement;
+
 // Instance controls
 const destroyBtn = document.getElementById('destroy') as HTMLButtonElement;
 const instanceStatus = document.getElementById('instance-status') as HTMLElement;
@@ -284,6 +290,21 @@ const updateUI = () => {
     updateNowPlaying();
     updatePlaylistControls();
     
+    // Update playback rate display
+    if (playbackRateDisplay) {
+        playbackRateDisplay.textContent = `${state.playbackRate.toFixed(2)}x`;
+    }
+    
+    // Update speed buttons active state
+    speedButtons.forEach(btn => {
+        const rate = parseFloat(btn.getAttribute('data-rate') || '1');
+        if (Math.abs(rate - state.playbackRate) < 0.01) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    
     // Update Media Session active badge
     if (player.mediaSession?.isActive() && state.isLeader) {
         mediaSessionActiveBadge.style.display = 'inline-block';
@@ -401,6 +422,35 @@ seekInput.addEventListener('keypress', (e) => {
     }
 });
 
+// --- Playback Rate Controls ---
+
+// Speed preset buttons
+speedButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+        const rate = parseFloat(btn.getAttribute('data-rate') || '1');
+        player.setPlaybackRate(rate);
+    });
+});
+
+// Increase/decrease speed buttons
+speedIncreaseBtn.addEventListener('click', () => {
+    const currentRate = player.getPlaybackRate();
+    const newRate = Math.min(4, currentRate + 0.25);
+    player.setPlaybackRate(newRate);
+});
+
+speedDecreaseBtn.addEventListener('click', () => {
+    const currentRate = player.getPlaybackRate();
+    const newRate = Math.max(0.25, currentRate - 0.25);
+    player.setPlaybackRate(newRate);
+});
+
+// Listen to playback rate changes
+player.on('playbackRateChange', ({ playbackRate, previousRate }) => {
+    console.log(`[Playback Rate] Changed: ${previousRate}x → ${playbackRate}x`);
+    updateUI();
+});
+
 // --- Destroy Instance ---
 
 destroyBtn.addEventListener('click', () => {
@@ -418,7 +468,11 @@ destroyBtn.addEventListener('click', () => {
     destroyBtn.style.opacity = '0.5';
 
     [playBtn, pauseBtn, stopBtn, muteBtn, unmuteBtn, seekBtn, becomeLeaderBtn, 
-     prevBtn, nextBtn, shuffleBtn, repeatBtn].forEach(btn => {
+     prevBtn, nextBtn, shuffleBtn, repeatBtn, speedDecreaseBtn, speedIncreaseBtn].forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+    });
+    speedButtons.forEach(btn => {
         btn.disabled = true;
         btn.style.opacity = '0.5';
     });

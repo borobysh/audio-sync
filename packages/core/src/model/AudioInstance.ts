@@ -13,6 +13,8 @@ import { createLogger } from "../shared/logger";
 import { MediaSessionManager } from "./mediaSession/MediaSessionManager";
 import { MediaSessionConfig, MediaMetadata } from "./types/mediaSession.types";
 import { AbstractMediaSession } from "./mediaSession/AbstractMediaSession";
+import { PlaybackRateManager } from "./playbackRate/PlaybackRateManager";
+import { PlaybackRateConfig } from "./types/playbackRate.types";
 
 const AUTHOR_LIB_TAG = '[borobysh/audio-sync]';
 
@@ -41,6 +43,11 @@ export interface AudioInstanceConfig extends SyncConfig {
      * Allows you to provide your own Media Session implementation
      */
     mediaSessionImpl?: AbstractMediaSession;
+    /**
+     * Playback rate configuration
+     * Controls playback speed (0.25x - 4x)
+     */
+    playbackRate?: Partial<PlaybackRateConfig>;
 }
 
 /**
@@ -54,6 +61,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     private readonly _playbackSyncHandler: PlaybackSyncHandler;
     private readonly _playlistManager: PlaylistManager | null;
     private readonly _mediaSessionManager: MediaSessionManager | null;
+    private readonly _playbackRateManager: PlaybackRateManager;
     private readonly _config: Required<SyncConfig>;
     private readonly _instanceId: string;
     private readonly _log: ReturnType<typeof createLogger>;
@@ -129,6 +137,16 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         // Initialize Media Session if config provided
         this._mediaSessionManager = this._initMediaSession(config);
 
+        // Initialize PlaybackRateManager (always enabled)
+        this._playbackRateManager = new PlaybackRateManager(
+            this._driver,
+            config.playbackRate || {},
+            {
+                onBroadcast: (type, payload) => this._coordinator.broadcast(type as any, payload),
+                isSyncEnabled: () => this._config.syncPlaybackRate
+            }
+        );
+
         this._initCoreListeners();
         this._initPeriodicSync();
 
@@ -139,6 +157,8 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         if (this._mediaSessionManager) {
             this._initMediaSessionListeners();
         }
+
+        this._initPlaybackRateListeners();
 
         this._log('Instance created, sending SYNC_REQUEST');
         this._coordinator.broadcast('SYNC_REQUEST', {});
@@ -169,6 +189,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     public get state(): SyncCoreState {
         return {
             ...this._engine.state,
+            playbackRate: this._playbackRateManager.playbackRate,
             isLeader: this._coordinator.isLeader
         };
     }
@@ -375,6 +396,34 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         });
     }
 
+    private _initPlaybackRateListeners() {
+        // Forward playback rate change events to AudioInstance
+        this._playbackRateManager.on('playbackRateChange', ({ playbackRate, previousRate }) => {
+            this._emitEvent('playbackRateChange', { playbackRate, previousRate });
+
+            // Update Media Session position state with new playback rate
+            if (this._mediaSessionManager) {
+                this._mediaSessionManager.onStateUpdate(this.state);
+            }
+        });
+
+        // Apply playback rate when track changes (persist between tracks)
+        this.on('trackChange', () => {
+            // Ensure playback rate is applied to new track
+            const currentRate = this._playbackRateManager.playbackRate;
+            this._driver.setPlaybackRate(currentRate);
+        });
+
+        // Apply playback rate when playback starts (in case audio element resets it)
+        this._engine.on('play', () => {
+            // Small delay to ensure audio element is ready
+            setTimeout(() => {
+                const currentRate = this._playbackRateManager.playbackRate;
+                this._driver.setPlaybackRate(currentRate);
+            }, 10);
+        });
+    }
+
     private _broadcastState(type: AudioEvent['type'], isRemoteCommand: boolean = false, customData?: any) {
         this._coordinator.broadcast(type, {
             ...this._engine.state,
@@ -412,6 +461,17 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             return;
         }
 
+        // Route playback rate changes to PlaybackRateManager (only if sync is enabled)
+        if (type === 'PLAYBACK_RATE_CHANGE') {
+            if (this._config.syncPlaybackRate) {
+                const rate = (payload as any).playbackRate;
+                if (typeof rate === 'number' && isFinite(rate)) {
+                    this._playbackRateManager.handleRemoteChange(rate);
+                }
+            }
+            return;
+        }
+
         // Handle remote control commands (from followers to leader)
         const isRemoteCommand = (payload as any).isRemoteCommand === true;
         if (this._coordinator.isLeader && isRemoteCommand) {
@@ -443,9 +503,20 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
                 this._driver.pause();
                 break;
 
+            case 'STOP':
+                this._driver.stop();
+                break;
+
             case 'STATE_UPDATE':
                 if (typeof payload.currentTime === 'number' && isFinite(payload.currentTime)) {
                     this._driver.seek(payload.currentTime);
+                }
+                break;
+
+            case 'PLAYBACK_RATE_CHANGE':
+                const rate = (payload as any).playbackRate;
+                if (typeof rate === 'number' && isFinite(rate)) {
+                    this._playbackRateManager.setPlaybackRate(rate, false); // Don't broadcast back
                 }
                 break;
         }
@@ -580,10 +651,46 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     }
 
     public stop() {
-        if (this._config.singlePlayback) {
-            this._coordinator.claimLeadership({ action: 'stop' }, (a) => this._executeAction(a));
-        } else {
+        if (!this._config.singlePlayback) {
             this._driver.stop();
+            return;
+        }
+
+        // Check if we're in remote control mode as a follower
+        const isRemoteControlFollower = this._config.allowRemoteControl && !this._coordinator.isLeader;
+
+        if (isRemoteControlFollower) {
+            // Send remote command to leader
+            if (!this._config.autoClaimLeadershipIfNone) {
+                // Just send remote command without checking for leader
+                this._coordinator.broadcast('STOP', {
+                    ...this._engine.state,
+                    isRemoteCommand: true
+                });
+                // Update local state without applying to driver (leader will apply it)
+                this._engine.setSyncState({ isPlaying: false, currentTime: 0 });
+                return;
+            }
+
+            // Check if leader exists before sending command
+            this._coordinator.checkForActiveLeader((hasLeader) => {
+                if (hasLeader) {
+                    // Leader exists, send remote command
+                    this._log('Sending remote STOP command to leader');
+                    this._coordinator.broadcast('STOP', {
+                        ...this._engine.state,
+                        isRemoteCommand: true
+                    });
+                    // Update local state without applying to driver (leader will apply it)
+                    this._engine.setSyncState({ isPlaying: false, currentTime: 0 });
+                } else {
+                    // No leader found, claim leadership and execute
+                    this._coordinator.claimLeadership({ action: 'stop' }, (a) => this._executeAction(a));
+                }
+            });
+        } else {
+            // Normal mode: claim leadership and execute
+            this._coordinator.claimLeadership({ action: 'stop' }, (a) => this._executeAction(a));
         }
     }
 
@@ -597,6 +704,82 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
 
     public toggleMute() {
         this._driver.toggleMute();
+    }
+
+    /**
+     * Set playback rate (speed)
+     * @param rate Playback rate (0.25 to 4.0)
+     * @example
+     * ```typescript
+     * player.setPlaybackRate(1.5); // 1.5x speed
+     * ```
+     */
+    public setPlaybackRate(rate: number): void {
+        // Check if we're in remote control mode as a follower
+        const isRemoteControlFollower = this._config.allowRemoteControl && 
+                                       !this._coordinator.isLeader &&
+                                       this._config.syncPlaybackRate;
+
+        if (isRemoteControlFollower) {
+            // Send remote command to leader
+            if (!this._config.autoClaimLeadershipIfNone) {
+                // Just send remote command without checking for leader
+                this._coordinator.broadcast('PLAYBACK_RATE_CHANGE', {
+                    ...this._engine.state,
+                    playbackRate: rate,
+                    isRemoteCommand: true
+                });
+                // Update local state without applying to driver (leader will apply it)
+                this._playbackRateManager.setPlaybackRateStateOnly(rate);
+                return;
+            }
+
+            // Check if leader exists before sending command
+            this._coordinator.checkForActiveLeader((hasLeader) => {
+                if (hasLeader) {
+                    // Leader exists, send remote command
+                    this._log('Sending remote PLAYBACK_RATE_CHANGE command to leader');
+                    this._coordinator.broadcast('PLAYBACK_RATE_CHANGE', {
+                        ...this._engine.state,
+                        playbackRate: rate,
+                        isRemoteCommand: true
+                    });
+                    // Update local state without applying to driver (leader will apply it)
+                    this._playbackRateManager.setPlaybackRateStateOnly(rate);
+                } else {
+                    // No leader found, apply locally
+                    this._playbackRateManager.setPlaybackRate(rate);
+                }
+            });
+        } else {
+            // Normal mode: apply directly
+            this._playbackRateManager.setPlaybackRate(rate);
+        }
+    }
+
+    /**
+     * Get current playback rate
+     * @returns Current playback rate
+     * @example
+     * ```typescript
+     * const rate = player.getPlaybackRate(); // 1.5
+     * ```
+     */
+    public getPlaybackRate(): number {
+        return this._playbackRateManager.getPlaybackRate();
+    }
+
+    /**
+     * Cycle through preset playback rates
+     * @param presets Array of playback rates to cycle through
+     * @returns New playback rate
+     * @example
+     * ```typescript
+     * player.cyclePlaybackRate([1, 1.25, 1.5, 2]); // Cycles through speeds
+     * ```
+     */
+    public cyclePlaybackRate(presets: number[]): number {
+        return this._playbackRateManager.cyclePlaybackRate(presets);
     }
 
     public destroy() {

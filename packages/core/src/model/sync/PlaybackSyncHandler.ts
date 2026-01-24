@@ -43,6 +43,8 @@ export class PlaybackSyncHandler {
                 return this._config.syncPlay;
             case 'PAUSE': 
                 return this._config.syncPause;
+            case 'STOP':
+                return this._config.syncPause; // Stop is similar to pause, use syncPause setting
             case 'STATE_UPDATE': 
                 return this._config.syncSeek || this._config.syncTrackChange;
             // System events are always allowed
@@ -137,6 +139,21 @@ export class PlaybackSyncHandler {
                 }
                 this._driver.play();
             }
+        }
+    }
+
+    /**
+     * Handle STOP event from remote
+     */
+    private _handleStop(): void {
+        if (this._config.singlePlayback) {
+            // In single playback mode, only leader plays
+            // Just update state to reflect stop
+            this._engine.setSyncState({ isPlaying: false, currentTime: 0 });
+        } else {
+            // Multi-tab playback - actually stop audio
+            this._log('⏹️ Remote stop');
+            this._driver.stop();
         }
     }
 

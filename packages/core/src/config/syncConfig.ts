@@ -18,6 +18,7 @@ export const AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG: Required<SyncConfig> = {
     syncPause: true,
     syncSeek: false,
     syncTrackChange: true,
+    syncPlaybackRate: true,
     singlePlayback: true,
     syncInterval: 1000,
     leadershipHandshakeTimeout: 100,
@@ -37,6 +38,7 @@ export const SyncPresets = {
         syncPause: false,
         syncSeek: false,
         syncTrackChange: false,
+        syncPlaybackRate: false,
         singlePlayback: false,
         syncInterval: 0,
         allowRemoteControl: false,
@@ -51,6 +53,7 @@ export const SyncPresets = {
         syncPause: true,
         syncSeek: true,
         syncTrackChange: true,
+        syncPlaybackRate: true,
         singlePlayback: false,
         syncInterval: 1000,
         allowRemoteControl: false,
@@ -81,6 +84,7 @@ export const SyncPresets = {
         syncPause: true,
         syncSeek: false,
         syncTrackChange: false,
+        syncPlaybackRate: false,
         singlePlayback: false,
         syncInterval: 0,
         allowRemoteControl: false,
@@ -176,6 +180,12 @@ export function describeSyncConfig(config: Partial<SyncConfig>): string {
         features.push('⏩ Seek/time syncs');
     } else {
         features.push('⏩ Each tab can seek independently');
+    }
+
+    if (config.syncPlaybackRate) {
+        features.push('⚡ Playback rate (speed) syncs');
+    } else {
+        features.push('⚡ Each tab can set speed independently');
     }
 
     return features.join('\n');

@@ -74,4 +74,10 @@ export abstract class AbstractDriver {
      * Used for syncing playback position on track change
      */
     abstract seekWhenReady(time: number): void;
+
+    /**
+     * Set playback rate (speed)
+     * @param rate Playback rate (0.25 to 4.0)
+     */
+    abstract setPlaybackRate(rate: number): void;
 }

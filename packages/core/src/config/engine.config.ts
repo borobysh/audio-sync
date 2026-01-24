@@ -10,4 +10,5 @@ export const DEFAULT_PLAYER_STATE: AudioState = {
     error: null,
     isBuffering: false,
     bufferedSeconds: 0,
+    playbackRate: 1,
 };

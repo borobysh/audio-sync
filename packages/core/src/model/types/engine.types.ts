@@ -13,6 +13,7 @@ export type AudioState = {
     error: AudioError;
     isBuffering: boolean;
     bufferedSeconds: number; // How many seconds are buffered from current position
+    playbackRate: number; // Playback speed (0.25 - 4.0)
 }
 
 export type EngineEventType =
