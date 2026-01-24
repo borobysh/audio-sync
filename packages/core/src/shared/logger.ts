@@ -2,7 +2,33 @@
  * Shared logger utility for consistent logging across the library
  */
 
-const DEBUG = true;
+let DEBUG = false;
+
+/**
+ * Enable or disable debug logging for the entire library
+ * @param enabled Whether to enable debug logging
+ * @example
+ * ```typescript
+ * import { setDebugMode } from '@audio-sync/core';
+ * 
+ * // Enable debug logging
+ * setDebugMode(true);
+ * 
+ * // Disable debug logging
+ * setDebugMode(false);
+ * ```
+ */
+export function setDebugMode(enabled: boolean): void {
+    DEBUG = enabled;
+}
+
+/**
+ * Check if debug mode is currently enabled
+ * @returns Current debug mode state
+ */
+export function isDebugEnabled(): boolean {
+    return DEBUG;
+}
 
 /**
  * Create a logger for a specific module
@@ -19,11 +45,4 @@ export function createLogger(moduleName: string, instanceId?: string) {
             console.log(prefix, ...args);
         }
     };
-}
-
-/**
- * Global debug flag
- */
-export function isDebugEnabled(): boolean {
-    return DEBUG;
 }

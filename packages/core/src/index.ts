@@ -57,3 +57,6 @@ export {
 
 // Public config
 export { DEFAULT_PLAYLIST_CONFIG } from "./config/playlist.config";
+
+// Debug utilities
+export { setDebugMode, isDebugEnabled } from "./shared/logger";
