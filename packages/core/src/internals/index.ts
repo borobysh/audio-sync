@@ -8,12 +8,15 @@
 export { Driver } from "../model/Driver";
 export { Engine } from "../model/Engine";
 export { EventEmitter } from "../model/EventEmitter";
+export { SyncCoordinator } from "../model/sync/SyncCoordinator";
+export { LatencyCompensator } from "../model/sync/LatencyCompensator";
 
 // Internal types
 export type { AudioEngineContract, EngineEventType } from "../model/types/engine.types";
 export type { AudioElementContract } from "../model/types/driver.types";
 export { AudioReadyState } from "../model/types/driver.types";
 export type { AudioInstanceEventType, AudioInstanceEventData } from "../model/types/eventEmitter.types";
+export type { PendingAction, SyncCoordinatorEvents } from "../model/sync/SyncCoordinator";
 
 // Internal configs
 export { DEFAULT_PLAYER_STATE } from "../config/engine.config";
