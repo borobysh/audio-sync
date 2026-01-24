@@ -6,5 +6,6 @@ export const DEFAULT_PLAYER_STATE: AudioState = {
     duration: 0,
     currentSrc: null,
     volume: 1,
+    muted: false,
     error: null,
 };

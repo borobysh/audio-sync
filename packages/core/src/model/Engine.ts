@@ -49,9 +49,51 @@ export class Engine implements AudioEngineContract {
         this.emit('pause');
     }
 
+    public stop() {
+        this._state.isPlaying = false;
+        this._state.currentTime = 0;
+        this.emit('stop');
+    }
+
     public seek(time: number) {
         this._state.currentTime = time;
         this.emit('seek', time);
+    }
+
+    /**
+     * Silently update play state without triggering audio playback.
+     * Used by followers to track leader's state without playing audio.
+     */
+    public setSyncState(patch: Partial<AudioState>) {
+        this._state = { ...this._state, ...patch };
+        // Only emit state_change, not play/pause/seek events
+        // This updates UI without triggering Driver's audio element
+        this.emit('state_change');
+    }
+
+    /**
+     * Silently stop playback state without triggering audio pause.
+     * Used when leadership is transferred to another tab.
+     */
+    public stopSilently() {
+        this._state.isPlaying = false;
+        this.emit('state_change');
+    }
+
+    /**
+     * Emit ended event when track finishes.
+     * Called by Driver when audio ends.
+     */
+    public emitEnded() {
+        this.emit('ended');
+    }
+
+    /**
+     * Emit error event.
+     * Called by Driver when an error occurs.
+     */
+    public emitError() {
+        this.emit('error', this._state.error);
     }
 
     public get state(): AudioState {

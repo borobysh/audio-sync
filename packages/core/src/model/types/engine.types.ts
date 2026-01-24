@@ -9,6 +9,7 @@ export type AudioState = {
     duration: number;
     currentSrc: string | null;
     volume: number;
+    muted: boolean;
     error: AudioError;
 }
 
@@ -16,7 +17,9 @@ export type EngineEventType =
     | 'state_change'
     | 'play'
     | 'pause'
+    | 'stop'
     | 'seek'
+    | 'ended'
     | 'error';
 
 export interface AudioEngineContract {
@@ -25,5 +28,8 @@ export interface AudioEngineContract {
     updateState(patch: Partial<AudioState>): void;
     play(src?: string): void;
     pause(): void;
+    stop(): void;
     seek(time: number): void;
+    setSyncState?(patch: Partial<AudioState>): void;
+    stopSilently?(): void;
 }

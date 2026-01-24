@@ -1,10 +1,18 @@
-import { AudioElementContract } from "./types/driver.types";
+import { AudioElementContract, AudioReadyState } from "./types/driver.types";
 import { AudioEngineContract, AudioState, EngineEventType } from "./types/engine.types";
 import { Engine } from "./Engine";
+
+const DEBUG = true;
+const logDriver = (...args: any[]) => {
+    if (DEBUG) {
+        console.log('[Driver]', ...args);
+    }
+};
 
 export class Driver {
     private audio: AudioElementContract;
     private engine: AudioEngineContract;
+    private _isSilentOperation: boolean = false;
 
     constructor(engine?: AudioEngineContract, audioElement?: AudioElementContract) {
         this.engine = engine || new Engine();
@@ -14,28 +22,113 @@ export class Driver {
         this._initAudioListeners();
     }
 
+    /**
+     * Check if currently in a silent operation (pause/stop triggered by sync, not user)
+     */
+    public get isSilentOperation(): boolean {
+        return this._isSilentOperation;
+    }
+
     private _initEngineListeners() {
         this.engine.on('play', ({ src }: { src: string }) => {
-            if (src && this.audio.src !== src) {
-                this.audio.src = src;
+            logDriver('🎵 Engine play event', {
+                src: src?.slice(-30),
+                currentSrc: this.audio.src?.slice(-30),
+                engineCurrentTime: this.engine.state.currentTime
+            });
+
+            const isSourceChanging = src && this.audio.src !== src;
+
+            if (isSourceChanging) {
+                logDriver('🔄 Changing audio source');
+                // Handle AbortError when changing source during playback
+                try {
+                    this.audio.src = src;
+                    this.engine.updateState({ error: null });
+                } catch (err: any) {
+                    // Ignore AbortError when changing source
+                    if (err.name !== 'AbortError') {
+                        logDriver('❌ Error setting src:', err.name);
+                        this.engine.updateState({
+                            error: {
+                                message: err.message,
+                                code: err.name
+                            },
+                        });
+                    }
+                }
             }
 
-            this.audio.play().catch((err: Error) => {
-                this.engine.updateState({
-                    error: {
-                        message: err.message,
-                        code: err.name
-                    },
-                });
+            logDriver('▶️ Calling audio.play()');
+            this.audio.play().then(() => {
+                // After playback starts, sync time from engine state
+                // This is important when follower becomes leader - 
+                // we need to start from the synced position
+                const engineTime = this.engine.state.currentTime;
+                const audioDiff = Math.abs(this.audio.currentTime - engineTime);
+
+                if (audioDiff > 0.5 && engineTime > 0 && isFinite(engineTime)) {
+                    logDriver('⏱️ Syncing audio.currentTime to engine state', {
+                        audioTime: this.audio.currentTime,
+                        engineTime
+                    });
+                    try {
+                        this.audio.currentTime = engineTime;
+                    } catch (err) {
+                        logDriver('⚠️ Failed to sync currentTime:', err);
+                    }
+                }
+            }).catch((err: Error) => {
+                // Ignore AbortError - it happens when source changes during play
+                if (err.name !== 'AbortError') {
+                    logDriver('❌ Play error:', err.name, err.message);
+                    this.engine.updateState({
+                        error: {
+                            message: err.message,
+                            code: err.name
+                        },
+                    });
+                } else {
+                    logDriver('⚠️ AbortError (ignored)');
+                }
             });
         });
 
         this.engine.on('pause', () => {
+            logDriver('⏸️ Engine pause event, calling audio.pause()');
             this.audio.pause();
         });
 
+        this.engine.on('stop', () => {
+            logDriver('⏹️ Engine stop event, calling audio.pause() and resetting time');
+            this.audio.pause();
+            if (this.audio.readyState === undefined || this.audio.readyState >= AudioReadyState.HAVE_METADATA) {
+                try {
+                    this.audio.currentTime = 0;
+                } catch (err) {
+                    logDriver('⚠️ Failed to reset currentTime:', err);
+                }
+            }
+        });
+
         this.engine.on('seek', (time: number) => {
-            this.audio.currentTime = time;
+            logDriver('⏱️ Engine seek event', { time, readyState: this.audio.readyState });
+            // Validate time to prevent non-finite values
+            if (typeof time === 'number' && isFinite(time) && time >= 0) {
+                // Also check if audio is ready to prevent errors during loading
+                if (this.audio.readyState === undefined || this.audio.readyState >= AudioReadyState.HAVE_CURRENT_DATA) {
+                    try {
+                        this.audio.currentTime = time;
+                        logDriver('✅ Set currentTime to', time);
+                    } catch (err) {
+                        logDriver('⚠️ Failed to set currentTime:', err);
+                    }
+                } else {
+                    logDriver('⏭️ Audio not ready, skipping seek');
+                }
+            } else {
+                logDriver('⏭️ Invalid time, skipping seek');
+            }
         });
     }
 
@@ -48,24 +141,36 @@ export class Driver {
         };
 
         this.audio.onplaying = () => {
+            logDriver('🔊 Audio onplaying event');
             this.engine.updateState({ isPlaying: true, error: null });
         };
 
         this.audio.onpause = () => {
-            this.engine.updateState({ isPlaying: false });
+            logDriver('🔇 Audio onpause event', { isSilentOperation: this._isSilentOperation });
+            // Don't update state if this is a silent operation (e.g., leadership transfer)
+            // The state is already updated by stopSilently()
+            if (!this._isSilentOperation) {
+                this.engine.updateState({ isPlaying: false });
+            }
         };
 
         this.audio.onerror = () => {
+            logDriver('❌ Audio onerror event');
             this.engine.updateState({
                 error: {
                     message: 'Failed to load audio source',
                     code: 'MEDIA_ERR_SRC_NOT_SUPPORTED'
                 },
             });
+            (this.engine as any).emitError?.();
         };
 
         this.audio.onended = () => {
+            logDriver('🏁 Audio onended event');
+            // First update state, then emit ended event
             this.engine.updateState({ isPlaying: false });
+            // Emit ended event
+            (this.engine as any).emitEnded?.();
         };
     }
 
@@ -81,6 +186,25 @@ export class Driver {
         this.engine.pause();
     }
 
+    /**
+     * Pauses audio without triggering engine events.
+     * Used when leadership is transferred to another tab to prevent
+     * broadcasting a PAUSE event back.
+     */
+    public pauseSilently() {
+        logDriver('🔇 pauseSilently called');
+        this._isSilentOperation = true;
+        this.audio.pause();
+
+        if (this.engine.stopSilently) {
+            this.engine.stopSilently();
+        }
+
+        setTimeout(() => {
+            this._isSilentOperation = false;
+        }, 50);
+    }
+
     public seek(time: number) {
         this.engine.seek(time);
     }
@@ -93,5 +217,73 @@ export class Driver {
         const volume = Math.max(0, Math.min(1, value));
         this.audio.volume = volume;
         this.engine.updateState({ volume });
+    }
+
+    /**
+     * Stops playback and resets time to 0.
+     */
+    public stop() {
+        this.engine.stop();
+    }
+
+    /**
+     * Mutes audio output (sets volume to 0 without changing the volume state).
+     */
+    public mute() {
+        logDriver('🔇 Muting audio');
+        this.audio.muted = true;
+        this.engine.updateState({ muted: true });
+    }
+
+    /**
+     * Unmutes audio output.
+     */
+    public unmute() {
+        logDriver('🔊 Unmuting audio');
+        this.audio.muted = false;
+        this.engine.updateState({ muted: false });
+    }
+
+    /**
+     * Toggles mute state.
+     */
+    public toggleMute() {
+        if (this.audio.muted) {
+            this.unmute();
+        } else {
+            this.mute();
+        }
+    }
+
+    /**
+     * Attempts to set currentTime, retrying if audio is not ready yet.
+     * Useful for syncing time after source changes.
+     */
+    public seekWhenReady(time: number, maxRetries: number = 10): void {
+        if (typeof time !== 'number' || !isFinite(time) || time < 0) {
+            return;
+        }
+
+        const trySeek = (attempt: number = 0) => {
+            if (attempt >= maxRetries) {
+                return;
+            }
+
+            if (this.audio.readyState === undefined || this.audio.readyState >= 2) {
+                try {
+                    this.audio.currentTime = time;
+                } catch (err) {
+                    // If it fails, try again after a short delay
+                    if (attempt < maxRetries - 1) {
+                        setTimeout(() => trySeek(attempt + 1), 50);
+                    }
+                }
+            } else {
+                // Audio not ready yet, wait and try again
+                setTimeout(() => trySeek(attempt + 1), 50);
+            }
+        };
+
+        trySeek();
     }
 }
