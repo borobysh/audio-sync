@@ -1,6 +1,6 @@
 import { Playlist } from "./Playlist";
 import { Track, PlaylistConfig, PlaylistEventPayloads } from "../types/playlist.types";
-import { DEFAULT_PLAYLIST_CONFIG } from "../../config/playlist.config";
+import { AUDIO_INSTANCE_DEFAULT_PLAYLIST_CONFIG } from "../../config/playlist.config";
 import { EventEmitter } from "../EventEmitter";
 import { createLogger } from "../../shared/logger";
 
@@ -33,7 +33,7 @@ export class PlaylistManager extends EventEmitter<PlaylistEventPayloads> {
         callbacks: PlaylistManagerCallbacks
     ) {
         super();
-        this._config = { ...DEFAULT_PLAYLIST_CONFIG, ...config };
+        this._config = { ...AUDIO_INSTANCE_DEFAULT_PLAYLIST_CONFIG, ...config };
         this._callbacks = callbacks;
         this._playlist = new Playlist();
 

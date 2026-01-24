@@ -71,6 +71,37 @@ export type SyncConfig = Partial<{
      */
     allowRemoteControl: boolean;
     /**
+     * Fine-grained control over which actions can be sent remotely.
+     * Only applies when allowRemoteControl is true.
+     * If not specified, all actions are allowed by default.
+     * 
+     * @example
+     * ```typescript
+     * // Only allow play/pause remote control
+     * remoteSync: {
+     *   play: true,
+     *   pause: true,
+     *   stop: false,
+     *   seek: false,
+     *   playbackRate: false
+     * }
+     * ```
+     * 
+     * Default: all actions allowed (all flags true)
+     */
+    remoteSync?: {
+        /** Allow remote play commands (default: true) */
+        play?: boolean;
+        /** Allow remote pause commands (default: true) */
+        pause?: boolean;
+        /** Allow remote stop commands (default: true) */
+        stop?: boolean;
+        /** Allow remote seek commands (default: true) */
+        seek?: boolean;
+        /** Allow remote playback rate change commands (default: true) */
+        playbackRate?: boolean;
+    };
+    /**
      * Automatically become leader if no active leader exists when trying to perform an action.
      * Only works when allowRemoteControl is true.
      * Default: true

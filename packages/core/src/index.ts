@@ -55,12 +55,13 @@ export type {
 export { 
     SyncPresets,
     AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG,
+    AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG,
     validateSyncConfig,
     describeSyncConfig 
 } from "./config/syncConfig";
 
 // Public config
-export { DEFAULT_PLAYLIST_CONFIG } from "./config/playlist.config";
+export { AUDIO_INSTANCE_DEFAULT_PLAYLIST_CONFIG } from "./config/playlist.config";
 
 // Debug utilities
 export { setDebugMode, isDebugEnabled } from "./shared/logger";

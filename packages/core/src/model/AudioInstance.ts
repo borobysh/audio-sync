@@ -8,10 +8,15 @@ import { PlaybackSyncHandler } from "./sync/PlaybackSyncHandler";
 import { PlaylistManager } from "./playlist/PlaylistManager";
 import { PlaylistConfig } from "./types/playlist.types";
 import { AudioInstanceEventData } from "./types/eventEmitter.types";
-import { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, describeSyncConfig, validateSyncConfig } from "../config/syncConfig";
+import {
+    AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG,
+    AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG,
+    describeSyncConfig,
+    validateSyncConfig
+} from "../config/syncConfig";
 import { createLogger } from "../shared/logger";
 import { MediaSessionManager } from "./mediaSession/MediaSessionManager";
-import { MediaSessionConfig, MediaMetadata } from "./types/mediaSession.types";
+import { MediaMetadata, MediaSessionConfig } from "./types/mediaSession.types";
 import { AbstractMediaSession } from "./mediaSession/AbstractMediaSession";
 import { PlaybackRateManager } from "./playbackRate/PlaybackRateManager";
 import { PlaybackRateConfig } from "./types/playbackRate.types";
@@ -77,7 +82,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         this._validateConfig()
 
         this._engine = new Engine();
-        
+
         // Allow dependency injection of custom Driver or AudioElement
         if (config.driver) {
             this._driver = config.driver;
@@ -369,7 +374,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
                     metadata.title = currentTrack.title || currentTrack.src;
                     metadata.artist = currentTrack.artist;
                     metadata.album = currentTrack.album;
-                    
+
                     // Convert coverArt URL to artwork array
                     if (currentTrack.coverArt) {
                         metadata.artwork = [
@@ -542,6 +547,34 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     // --- Private Helpers ---
 
     /**
+     * Check if a specific action is allowed for remote control
+     */
+    private _isRemoteControlAllowed(action: 'play' | 'pause' | 'stop' | 'seek' | 'playbackRate'): boolean {
+        if (!this._config.allowRemoteControl) {
+            return false;
+        }
+
+        // Use default config if remoteSync is not specified
+        const remoteSync = this._config.remoteSync || AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG;
+
+        // Check specific action flag (default to true if not specified)
+        switch (action) {
+            case 'play':
+                return remoteSync.play !== false;
+            case 'pause':
+                return remoteSync.pause !== false;
+            case 'stop':
+                return remoteSync.stop !== false;
+            case 'seek':
+                return remoteSync.seek !== false;
+            case 'playbackRate':
+                return remoteSync.playbackRate !== false;
+            default:
+                return false;
+        }
+    }
+
+    /**
      * Execute action with remote control logic:
      * - If we're the leader: claim leadership and execute
      * - If remote control enabled: send command or auto-claim if no leader
@@ -550,10 +583,13 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     private _executeWithRemoteControlLogic(
         action: PendingAction,
         eventType: AudioEvent['type'],
-        onRemoteCommand: () => void
+        onRemoteCommand: () => void,
+        remoteActionType: 'play' | 'pause' | 'stop' | 'seek' = 'play'
     ) {
-        const isRemoteControlFollower = this._config.allowRemoteControl && !this._coordinator.isLeader;
-        
+        const isRemoteControlFollower = this._config.allowRemoteControl &&
+            !this._coordinator.isLeader &&
+            this._isRemoteControlAllowed(remoteActionType);
+
         if (!isRemoteControlFollower) {
             // Normal mode: claim leadership and execute
             this._coordinator.claimLeadership(action, (a) => this._executeAction(a));
@@ -612,7 +648,8 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
                 } else {
                     this._engine.setSyncState({ isPlaying: true });
                 }
-            }
+            },
+            'play'
         );
     }
 
@@ -627,7 +664,8 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             'PAUSE',
             () => {
                 this._engine.setSyncState({ isPlaying: false });
-            }
+            },
+            'pause'
         );
     }
 
@@ -642,7 +680,8 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             'STATE_UPDATE',
             () => {
                 this._engine.setSyncState({ currentTime: time });
-            }
+            },
+            'seek'
         );
     }
 
@@ -657,7 +696,9 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         }
 
         // Check if we're in remote control mode as a follower
-        const isRemoteControlFollower = this._config.allowRemoteControl && !this._coordinator.isLeader;
+        const isRemoteControlFollower = this._config.allowRemoteControl &&
+            !this._coordinator.isLeader &&
+            this._isRemoteControlAllowed('stop');
 
         if (isRemoteControlFollower) {
             // Send remote command to leader
@@ -716,9 +757,9 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
      */
     public setPlaybackRate(rate: number): void {
         // Check if we're in remote control mode as a follower
-        const isRemoteControlFollower = this._config.allowRemoteControl && 
-                                       !this._coordinator.isLeader &&
-                                       this._config.syncPlaybackRate;
+        const isRemoteControlFollower = this._config.allowRemoteControl &&
+            !this._coordinator.isLeader &&
+            this._config.syncPlaybackRate;
 
         if (isRemoteControlFollower) {
             // Send remote command to leader
@@ -787,7 +828,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         this._coordinator.close();
         this._driver.stop();
         this._engine.setSyncState(DEFAULT_PLAYER_STATE);
-        
+
         // Cleanup Media Session
         if (this._mediaSessionManager) {
             this._mediaSessionManager.destroy();

@@ -11,6 +11,17 @@ import {
 } from "../model/types/syncConfig.types";
 
 /**
+ * Default remote sync configuration (all actions allowed)
+ */
+export const AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG = {
+    play: true,
+    pause: true,
+    stop: true,
+    seek: true,
+    playbackRate: true
+} as const;
+
+/**
  * Default sync configuration for AudioInstance
  */
 export const AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG: Required<SyncConfig> = {
@@ -23,6 +34,7 @@ export const AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG: Required<SyncConfig> = {
     syncInterval: 1000,
     leadershipHandshakeTimeout: 100,
     allowRemoteControl: false,
+    remoteSync: AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG,
     autoClaimLeadershipIfNone: true
 };
 

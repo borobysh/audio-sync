@@ -1,4 +1,4 @@
-import { AudioInstance, SyncPresets, Track } from "../../packages/core/src/index";
+import { AudioInstance, AudioInstanceConfig, SyncPresets, Track } from "../../packages/core/src/index";
 
 const tracks: Track[] = [
     {
@@ -75,7 +75,7 @@ const tracks: Track[] = [
 // 
 // ═══════════════════════════════════════════════════════════════
 
-const config = {
+const config: AudioInstanceConfig = {
     ...SyncPresets.REMOTE_CONTROL,
 
     playlist: {
