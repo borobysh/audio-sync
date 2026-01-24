@@ -10,6 +10,13 @@ export { AbstractDriver } from "./model/drivers/AbstractDriver";
 export { Playlist } from "./model/playlist/Playlist";
 export { PlaylistManager } from "./model/playlist/PlaylistManager";
 
+// Media Session API
+export { 
+    AbstractMediaSession, 
+    BrowserMediaSession, 
+    MediaSessionManager 
+} from "./model/mediaSession";
+
 // Public types
 export type { SyncConfig, SyncCoreState } from "./model/types/syncCore.types";
 export type { AudioState, AudioError } from "./model/types/engine.types";
@@ -21,6 +28,15 @@ export type {
     PlaylistEventType,
     PlaylistEventPayloads 
 } from "./model/types/playlist.types";
+export type {
+    MediaSessionConfig,
+    MediaSessionAction,
+    MediaSessionPlaybackState,
+    MediaMetadata,
+    MediaImage,
+    MediaPositionState,
+    MediaSessionCallbacks
+} from "./model/types/mediaSession.types";
 
 // Validated sync config types
 export type {

@@ -1,31 +1,16 @@
 import {
+  AbstractDriver,
   DEFAULT_PLAYER_STATE,
   Driver,
   Engine,
   EventEmitter,
   PlaybackSyncHandler,
-  SyncCoordinator
-} from "./chunk-3QWVUA3K.mjs";
-
-// src/config/sync.config.ts
-var AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG = {
-  syncPlay: true,
-  syncPause: true,
-  syncSeek: false,
-  syncTrackChange: true,
-  singlePlayback: true,
-  syncInterval: 1e3,
-  leadershipHandshakeTimeout: 100,
-  allowRemoteControl: false
-};
+  SyncCoordinator,
+  createLogger
+} from "./chunk-ZN6YASYK.mjs";
 
 // src/model/playlist/Playlist.ts
-var DEBUG = true;
-var log = (...args) => {
-  if (DEBUG) {
-    console.log("[Playlist]", ...args);
-  }
-};
+var log = createLogger("Playlist");
 var Playlist = class extends EventEmitter {
   _tracks = [];
   _currentIndex = -1;
@@ -368,12 +353,7 @@ var DEFAULT_PLAYLIST_CONFIG = {
 };
 
 // src/model/playlist/PlaylistManager.ts
-var DEBUG2 = true;
-var log2 = (...args) => {
-  if (DEBUG2) {
-    console.log("[PlaylistManager]", ...args);
-  }
-};
+var log2 = createLogger("PlaylistManager");
 var PlaylistManager = class extends EventEmitter {
   _playlist;
   _config;
@@ -621,7 +601,18 @@ var PlaylistManager = class extends EventEmitter {
   }
 };
 
-// src/model/types/syncConfig.types.ts
+// src/config/syncConfig.ts
+var AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG = {
+  syncPlay: true,
+  syncPause: true,
+  syncSeek: false,
+  syncTrackChange: true,
+  singlePlayback: true,
+  syncInterval: 1e3,
+  leadershipHandshakeTimeout: 100,
+  allowRemoteControl: false,
+  autoClaimLeadershipIfNone: true
+};
 var SyncPresets = {
   /**
    * Each tab is completely independent
@@ -633,8 +624,8 @@ var SyncPresets = {
     syncTrackChange: false,
     singlePlayback: false,
     syncInterval: 0,
-    // No periodic sync needed
-    allowRemoteControl: false
+    allowRemoteControl: false,
+    autoClaimLeadershipIfNone: false
   },
   /**
    * All tabs play the same content in sync
@@ -646,7 +637,8 @@ var SyncPresets = {
     syncTrackChange: true,
     singlePlayback: false,
     syncInterval: 1e3,
-    allowRemoteControl: false
+    allowRemoteControl: false,
+    autoClaimLeadershipIfNone: false
   },
   /**
    * One tab plays, others control (like Spotify Connect)
@@ -659,8 +651,8 @@ var SyncPresets = {
     syncTrackChange: true,
     singlePlayback: true,
     syncInterval: 1e3,
-    allowRemoteControl: true
-    // Followers can control without becoming leaders
+    allowRemoteControl: true,
+    autoClaimLeadershipIfNone: true
   },
   /**
    * Simple play/pause sync - each tab becomes leader when it plays/pauses
@@ -673,7 +665,8 @@ var SyncPresets = {
     syncTrackChange: false,
     singlePlayback: false,
     syncInterval: 0,
-    allowRemoteControl: false
+    allowRemoteControl: false,
+    autoClaimLeadershipIfNone: false
   },
   /**
    * Synced playback but independent tracks
@@ -685,7 +678,8 @@ var SyncPresets = {
     syncTrackChange: false,
     singlePlayback: false,
     syncInterval: 0,
-    allowRemoteControl: false
+    allowRemoteControl: false,
+    autoClaimLeadershipIfNone: false
   }
 };
 function validateSyncConfig(config) {
@@ -738,30 +732,507 @@ function describeSyncConfig(config) {
   return features.join("\n");
 }
 
-// src/model/AudioInstance.ts
-var DEBUG3 = true;
-var AUTHOR_LIB_TAG = "[borobysh/audio-sync]";
-var log3 = (instanceId, ...args) => {
-  if (DEBUG3) {
-    console.log(`[Sync:${instanceId.slice(0, 4)}]`, ...args);
+// src/model/mediaSession/AbstractMediaSession.ts
+var AbstractMediaSession = class {
+  config;
+  callbacks;
+  isActive = false;
+  constructor(config, callbacks) {
+    this.config = this._mergeWithDefaults(config);
+    this.callbacks = callbacks;
+  }
+  /**
+   * Check if Media Session is currently active
+   */
+  isMediaSessionActive() {
+    return this.isActive;
+  }
+  /**
+   * Get current configuration
+   */
+  getConfig() {
+    return this.config;
+  }
+  /**
+   * Merge user config with defaults
+   */
+  _mergeWithDefaults(config) {
+    return {
+      enabled: config.enabled ?? true,
+      seekStep: config.seekStep ?? 10,
+      updateInterval: config.updateInterval ?? 1e3,
+      actions: config.actions,
+      artwork: {
+        defaultUrl: config.artwork?.defaultUrl,
+        sizes: config.artwork?.sizes ?? [96, 128, 192, 256, 384, 512]
+      }
+    };
   }
 };
+
+// src/model/mediaSession/BrowserMediaSession.ts
+var BrowserMediaSession = class extends AbstractMediaSession {
+  _log;
+  _updateIntervalId = null;
+  _registeredActions = /* @__PURE__ */ new Set();
+  constructor(config, callbacks) {
+    super(config, callbacks);
+    this._log = createLogger("MediaSession");
+    if (!this.isSupported()) {
+      this._log("\u26A0\uFE0F Media Session API not supported in this browser");
+    }
+  }
+  /**
+   * Check if Media Session API is supported
+   */
+  isSupported() {
+    return typeof navigator !== "undefined" && "mediaSession" in navigator;
+  }
+  /**
+   * Activate Media Session and register action handlers
+   */
+  activate() {
+    if (!this.isSupported() || !this.config.enabled) {
+      return;
+    }
+    if (this.isActive) {
+      this._log("\u26A0\uFE0F Already active");
+      return;
+    }
+    this._log("\u2705 Activating Media Session");
+    this.isActive = true;
+    this._registerActionHandlers();
+    if (this.config.updateInterval > 0) {
+      this._startPositionUpdates();
+    }
+  }
+  /**
+   * Deactivate Media Session and unregister handlers
+   */
+  deactivate() {
+    if (!this.isSupported() || !this.isActive) {
+      return;
+    }
+    this._log("\u{1F507} Deactivating Media Session");
+    this.isActive = false;
+    this._unregisterActionHandlers();
+    this._stopPositionUpdates();
+    this.clear();
+  }
+  /**
+   * Update metadata for currently playing track
+   */
+  updateMetadata(metadata) {
+    if (!this.isSupported() || !this.config.enabled) {
+      return;
+    }
+    try {
+      const artwork = this._prepareArtwork(metadata.artwork);
+      if ("MediaMetadata" in window) {
+        navigator.mediaSession.metadata = new window.MediaMetadata({
+          title: metadata.title || "Unknown Title",
+          artist: metadata.artist || "Unknown Artist",
+          album: metadata.album || "",
+          artwork
+        });
+        this._log("\u{1F4DD} Metadata updated:", metadata.title, "-", metadata.artist);
+      }
+    } catch (error) {
+      this._log("\u274C Failed to update metadata:", error);
+    }
+  }
+  /**
+   * Update playback state
+   */
+  setPlaybackState(state) {
+    if (!this.isSupported() || !this.config.enabled) {
+      return;
+    }
+    try {
+      navigator.mediaSession.playbackState = state;
+      this._log("\u25B6\uFE0F Playback state:", state);
+    } catch (error) {
+      this._log("\u274C Failed to set playback state:", error);
+    }
+  }
+  /**
+   * Update position state (current time, duration, playback rate)
+   */
+  setPositionState(state) {
+    if (!this.isSupported() || !this.config.enabled) {
+      return;
+    }
+    try {
+      const duration = typeof state.duration === "number" && isFinite(state.duration) && state.duration > 0 ? state.duration : void 0;
+      const position = typeof state.position === "number" && isFinite(state.position) && state.position >= 0 ? Math.min(state.position, duration || Infinity) : void 0;
+      const playbackRate = typeof state.playbackRate === "number" && isFinite(state.playbackRate) && state.playbackRate > 0 ? state.playbackRate : 1;
+      if (duration !== void 0 && position !== void 0) {
+        navigator.mediaSession.setPositionState({
+          duration,
+          playbackRate,
+          position
+        });
+      }
+    } catch (error) {
+    }
+  }
+  /**
+   * Set custom action handler
+   */
+  setActionHandler(action, handler) {
+    if (!this.isSupported() || !this.config.enabled) {
+      return;
+    }
+    try {
+      navigator.mediaSession.setActionHandler(action, handler);
+      if (handler) {
+        this._registeredActions.add(action);
+        this._log("\u{1F3AE} Action handler registered:", action);
+      } else {
+        this._registeredActions.delete(action);
+        this._log("\u{1F3AE} Action handler unregistered:", action);
+      }
+    } catch (error) {
+      this._log("\u274C Failed to set action handler:", action, error);
+    }
+  }
+  /**
+   * Clear all metadata and reset state
+   */
+  clear() {
+    if (!this.isSupported()) {
+      return;
+    }
+    try {
+      navigator.mediaSession.metadata = null;
+      navigator.mediaSession.playbackState = "none";
+      this._log("\u{1F9F9} Metadata cleared");
+    } catch (error) {
+      this._log("\u274C Failed to clear metadata:", error);
+    }
+  }
+  /**
+   * Destroy and cleanup resources
+   */
+  destroy() {
+    this._log("\u{1F4A5} Destroying Media Session");
+    this.deactivate();
+  }
+  // --- Private Methods ---
+  /**
+   * Register default action handlers based on config
+   */
+  _registerActionHandlers() {
+    const actionsToRegister = this.config.actions || this._getDefaultActions();
+    for (const action of actionsToRegister) {
+      const handler = this._getActionHandler(action);
+      if (handler) {
+        this.setActionHandler(action, handler);
+      }
+    }
+  }
+  /**
+   * Unregister all action handlers
+   */
+  _unregisterActionHandlers() {
+    for (const action of this._registeredActions) {
+      this.setActionHandler(action, null);
+    }
+    this._registeredActions.clear();
+  }
+  /**
+   * Get default actions to register
+   */
+  _getDefaultActions() {
+    const actions = ["play", "pause"];
+    if (this.callbacks.onPreviousTrack) {
+      actions.push("previoustrack");
+    }
+    if (this.callbacks.onNextTrack) {
+      actions.push("nexttrack");
+    }
+    if (this.callbacks.onSeekBackward) {
+      actions.push("seekbackward");
+    }
+    if (this.callbacks.onSeekForward) {
+      actions.push("seekforward");
+    }
+    if (this.callbacks.onSeekTo) {
+      actions.push("seekto");
+    }
+    if (this.callbacks.onStop) {
+      actions.push("stop");
+    }
+    return actions;
+  }
+  /**
+   * Get action handler for specific action
+   */
+  _getActionHandler(action) {
+    switch (action) {
+      case "play":
+        return () => {
+          this._log("\u{1F3AE} Action: play");
+          this.callbacks.onPlay();
+        };
+      case "pause":
+        return () => {
+          this._log("\u{1F3AE} Action: pause");
+          this.callbacks.onPause();
+        };
+      case "stop":
+        return this.callbacks.onStop ? () => {
+          this._log("\u{1F3AE} Action: stop");
+          this.callbacks.onStop();
+        } : null;
+      case "previoustrack":
+        return this.callbacks.onPreviousTrack ? () => {
+          this._log("\u{1F3AE} Action: previoustrack");
+          this.callbacks.onPreviousTrack();
+        } : null;
+      case "nexttrack":
+        return this.callbacks.onNextTrack ? () => {
+          this._log("\u{1F3AE} Action: nexttrack");
+          this.callbacks.onNextTrack();
+        } : null;
+      case "seekbackward":
+        return this.callbacks.onSeekBackward ? (details) => {
+          const seekOffset = details?.seekOffset || this.config.seekStep;
+          this._log("\u{1F3AE} Action: seekbackward", seekOffset);
+          this.callbacks.onSeekBackward(seekOffset);
+        } : null;
+      case "seekforward":
+        return this.callbacks.onSeekForward ? (details) => {
+          const seekOffset = details?.seekOffset || this.config.seekStep;
+          this._log("\u{1F3AE} Action: seekforward", seekOffset);
+          this.callbacks.onSeekForward(seekOffset);
+        } : null;
+      case "seekto":
+        return this.callbacks.onSeekTo ? (details) => {
+          if (details?.seekTime !== void 0) {
+            this._log("\u{1F3AE} Action: seekto", details.seekTime);
+            this.callbacks.onSeekTo(details.seekTime, details.fastSeek);
+          }
+        } : null;
+      default:
+        return null;
+    }
+  }
+  /**
+   * Prepare artwork array with proper sizes
+   */
+  _prepareArtwork(artwork) {
+    if (!artwork || artwork.length === 0) {
+      if (this.config.artwork.defaultUrl) {
+        return this._generateArtworkSizes(this.config.artwork.defaultUrl);
+      }
+      return [];
+    }
+    if (Array.isArray(artwork) && artwork.length > 0) {
+      return artwork;
+    }
+    return [];
+  }
+  /**
+   * Generate artwork array with multiple sizes
+   */
+  _generateArtworkSizes(url) {
+    const sizes = this.config.artwork.sizes || [96, 128, 192, 256, 384, 512];
+    return sizes.map((size) => ({
+      src: url,
+      sizes: `${size}x${size}`,
+      type: this._guessImageType(url)
+    }));
+  }
+  /**
+   * Guess image MIME type from URL
+   */
+  _guessImageType(url) {
+    const ext = url.split(".").pop()?.toLowerCase();
+    switch (ext) {
+      case "png":
+        return "image/png";
+      case "jpg":
+      case "jpeg":
+        return "image/jpeg";
+      case "webp":
+        return "image/webp";
+      case "gif":
+        return "image/gif";
+      case "svg":
+        return "image/svg+xml";
+      default:
+        return "image/jpeg";
+    }
+  }
+  /**
+   * Start periodic position state updates
+   */
+  _startPositionUpdates() {
+    if (this._updateIntervalId) {
+      return;
+    }
+  }
+  /**
+   * Stop periodic position state updates
+   */
+  _stopPositionUpdates() {
+    if (this._updateIntervalId) {
+      clearInterval(this._updateIntervalId);
+      this._updateIntervalId = null;
+    }
+  }
+};
+
+// src/model/mediaSession/MediaSessionManager.ts
+var MediaSessionManager = class {
+  _mediaSession;
+  _log;
+  _isLeader = false;
+  _currentState = {};
+  constructor(config, callbacks, mediaSessionImpl) {
+    this._log = createLogger("MediaSessionManager");
+    if (mediaSessionImpl) {
+      this._mediaSession = mediaSessionImpl;
+    } else {
+      this._mediaSession = new BrowserMediaSession(config, callbacks);
+    }
+    if (!this._mediaSession.isSupported()) {
+      this._log("\u26A0\uFE0F Media Session API not supported - graceful degradation");
+    } else {
+      this._log("\u2705 Media Session Manager initialized");
+    }
+  }
+  /**
+   * Handle leadership change
+   * Only leader should control Media Session to avoid conflicts
+   */
+  onLeadershipChange(isLeader) {
+    this._isLeader = isLeader;
+    if (isLeader) {
+      this._log("\u{1F451} Became leader - activating Media Session");
+      this._mediaSession.activate();
+      if (this._currentState.currentSrc) {
+        this._updateFromState(this._currentState);
+      }
+    } else {
+      this._log("\u{1F465} Lost leadership - deactivating Media Session");
+      this._mediaSession.deactivate();
+    }
+  }
+  /**
+   * Handle state updates from AudioInstance
+   */
+  onStateUpdate(state) {
+    this._currentState = { ...this._currentState, ...state };
+    if (!this._isLeader || !this._mediaSession.isSupported()) {
+      return;
+    }
+    this._updateFromState(state);
+  }
+  /**
+   * Handle track change
+   */
+  onTrackChange(metadata) {
+    if (!this._isLeader || !this._mediaSession.isSupported()) {
+      return;
+    }
+    this._log("\u{1F3B5} Track changed:", metadata.title);
+    this._mediaSession.updateMetadata(metadata);
+  }
+  /**
+   * Handle playback state change
+   */
+  onPlaybackStateChange(isPlaying) {
+    if (!this._isLeader || !this._mediaSession.isSupported()) {
+      return;
+    }
+    const state = isPlaying ? "playing" : "paused";
+    this._mediaSession.setPlaybackState(state);
+  }
+  /**
+   * Update position state
+   */
+  updatePositionState(currentTime, duration, playbackRate = 1) {
+    if (!this._isLeader || !this._mediaSession.isSupported()) {
+      return;
+    }
+    this._mediaSession.setPositionState({
+      position: currentTime,
+      duration,
+      playbackRate
+    });
+  }
+  /**
+   * Check if Media Session is supported
+   */
+  isSupported() {
+    return this._mediaSession.isSupported();
+  }
+  /**
+   * Check if Media Session is active
+   */
+  isActive() {
+    return this._mediaSession.isMediaSessionActive();
+  }
+  /**
+   * Get Media Session instance (for advanced usage)
+   */
+  getMediaSession() {
+    return this._mediaSession;
+  }
+  /**
+   * Destroy and cleanup
+   */
+  destroy() {
+    this._log("\u{1F4A5} Destroying Media Session Manager");
+    this._mediaSession.destroy();
+  }
+  // --- Private Methods ---
+  /**
+   * Update Media Session from state
+   */
+  _updateFromState(state) {
+    if (state.isPlaying !== void 0) {
+      this.onPlaybackStateChange(state.isPlaying);
+    }
+    if (state.currentTime !== void 0 && state.duration !== void 0) {
+      this.updatePositionState(
+        state.currentTime,
+        state.duration,
+        1
+      );
+    }
+  }
+};
+
+// src/model/AudioInstance.ts
+var AUTHOR_LIB_TAG = "[borobysh/audio-sync]";
 var AudioInstance = class extends EventEmitter {
   _engine;
   _driver;
   _coordinator;
   _playbackSyncHandler;
   _playlistManager;
+  _mediaSessionManager;
   _config;
   _instanceId;
+  _log;
   _syncIntervalId = null;
   constructor(channelName = "audio_sync_v1", config = {}) {
     super();
     this._instanceId = Math.random().toString(36).substring(2, 11);
     this._config = { ...AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, ...config };
+    this._log = createLogger("Sync", this._instanceId);
     this._validateConfig();
     this._engine = new Engine();
-    this._driver = new Driver(this._engine);
+    if (config.driver) {
+      this._driver = config.driver;
+    } else if (config.audioElement) {
+      this._driver = new Driver(this._engine, config.audioElement);
+    } else {
+      this._driver = new Driver(this._engine);
+    }
     this._playbackSyncHandler = new PlaybackSyncHandler(
       this._instanceId,
       this._config,
@@ -775,10 +1246,13 @@ var AudioInstance = class extends EventEmitter {
       {
         onRemoteEvent: (type, payload, timestamp) => this._handleRemoteEvent(type, payload, timestamp),
         onLeadershipChange: (isLeader) => {
-          log3(this._instanceId, isLeader ? "\u{1F451} Became leader" : "\u{1F451}\u27A1\uFE0F Giving up leadership");
+          this._log(isLeader ? "\u{1F451} Became leader" : "\u{1F451}\u27A1\uFE0F Giving up leadership");
           this._emitEvent("leaderChange", { isLeader });
+          if (this._mediaSessionManager) {
+            this._mediaSessionManager.onLeadershipChange(isLeader);
+          }
           if (!isLeader && this._config.singlePlayback && this._engine.state.isPlaying) {
-            log3(this._instanceId, `\u{1F507} Stopping real playback (lost leadership)`);
+            this._log("\u{1F507} Stopping real playback (lost leadership)");
             this._driver.pauseSilently();
           }
         },
@@ -796,12 +1270,16 @@ var AudioInstance = class extends EventEmitter {
         onBroadcast: (type, payload) => this._coordinator.broadcast(type, payload)
       }
     ) : null;
+    this._mediaSessionManager = this._initMediaSession(config);
     this._initCoreListeners();
     this._initPeriodicSync();
     if (this._playlistManager) {
       this._initPlaylistListeners();
     }
-    log3(this._instanceId, "\u{1F680} Instance created, sending SYNC_REQUEST");
+    if (this._mediaSessionManager) {
+      this._initMediaSessionListeners();
+    }
+    this._log("\u{1F680} Instance created, sending SYNC_REQUEST");
     this._coordinator.broadcast("SYNC_REQUEST", {});
   }
   // --- Accessors ---
@@ -813,6 +1291,9 @@ var AudioInstance = class extends EventEmitter {
   }
   get playlist() {
     return this._playlistManager;
+  }
+  get mediaSession() {
+    return this._mediaSessionManager;
   }
   get instanceId() {
     return this._instanceId;
@@ -894,10 +1375,105 @@ var AudioInstance = class extends EventEmitter {
     this._playlistManager.on("repeatModeChanged", (data) => this._emitEvent("playlistRepeatModeChanged", data));
     this._playlistManager.on("shuffleChanged", (data) => this._emitEvent("playlistShuffleChanged", data));
   }
-  _broadcastState(type) {
+  _initMediaSession(config) {
+    if (config.mediaSession?.enabled === false) {
+      return null;
+    }
+    const mediaSessionConfig = {
+      enabled: true,
+      seekStep: 10,
+      updateInterval: 1e3,
+      ...config.mediaSession
+    };
+    const callbacks = {
+      onPlay: () => {
+        this._log("\u{1F3AE} Media Session: play");
+        this.play();
+      },
+      onPause: () => {
+        this._log("\u{1F3AE} Media Session: pause");
+        this.pause();
+      },
+      onStop: () => {
+        this._log("\u{1F3AE} Media Session: stop");
+        this.stop();
+      },
+      onSeekBackward: (seekOffset) => {
+        const offset = seekOffset || mediaSessionConfig.seekStep;
+        const newTime = Math.max(0, this._engine.state.currentTime - offset);
+        this._log("\u{1F3AE} Media Session: seekbackward", offset, "seconds");
+        this.seek(newTime);
+      },
+      onSeekForward: (seekOffset) => {
+        const offset = seekOffset || mediaSessionConfig.seekStep;
+        const newTime = Math.min(
+          this._engine.state.duration || Infinity,
+          this._engine.state.currentTime + offset
+        );
+        this._log("\u{1F3AE} Media Session: seekforward", offset, "seconds");
+        this.seek(newTime);
+      },
+      onSeekTo: (seekTime) => {
+        this._log("\u{1F3AE} Media Session: seekto", seekTime);
+        this.seek(seekTime);
+      },
+      onPreviousTrack: this._playlistManager ? () => {
+        this._log("\u{1F3AE} Media Session: previoustrack");
+        this._playlistManager.prev();
+      } : void 0,
+      onNextTrack: this._playlistManager ? () => {
+        this._log("\u{1F3AE} Media Session: nexttrack");
+        this._playlistManager.next();
+      } : void 0
+    };
+    return new MediaSessionManager(
+      mediaSessionConfig,
+      callbacks,
+      config.mediaSessionImpl
+    );
+  }
+  _initMediaSessionListeners() {
+    if (!this._mediaSessionManager) return;
+    this._engine.on("state_change", () => {
+      this._mediaSessionManager.onStateUpdate(this.state);
+    });
+    this.on("trackChange", ({ src }) => {
+      const metadata = {
+        title: src || "Unknown Track",
+        artist: "Unknown Artist"
+      };
+      if (this._playlistManager) {
+        const currentTrack = this._playlistManager.currentTrack;
+        if (currentTrack) {
+          metadata.title = currentTrack.title || currentTrack.src;
+          metadata.artist = currentTrack.artist;
+          metadata.album = currentTrack.album;
+          if (currentTrack.coverArt) {
+            metadata.artwork = [
+              { src: currentTrack.coverArt, sizes: "512x512", type: "image/jpeg" }
+            ];
+          }
+        }
+      }
+      this._mediaSessionManager.onTrackChange(metadata);
+    });
+    this.on("play", () => {
+      this._mediaSessionManager.onPlaybackStateChange(true);
+    });
+    this.on("pause", () => {
+      this._mediaSessionManager.onPlaybackStateChange(false);
+    });
+    this.on("stop", () => {
+      this._mediaSessionManager.onPlaybackStateChange(false);
+    });
+  }
+  _broadcastState(type, isRemoteCommand = false, customData) {
     this._coordinator.broadcast(type, {
       ...this._engine.state,
-      isLeader: true
+      isLeader: !isRemoteCommand,
+      // Remote commands don't claim leadership
+      isRemoteCommand,
+      customData
     });
   }
   _initPeriodicSync() {
@@ -922,7 +1498,36 @@ var AudioInstance = class extends EventEmitter {
       this._playlistManager.handleRemoteAction(type, payload);
       return;
     }
+    const isRemoteCommand = payload.isRemoteCommand === true;
+    if (this._coordinator.isLeader && isRemoteCommand) {
+      this._handleRemoteControlCommand(type, payload);
+      return;
+    }
     this._playbackSyncHandler.handleRemoteEvent(type, payload, timestamp);
+  }
+  /**
+   * Handle remote control commands sent by followers
+   * Only executed on leader
+   */
+  _handleRemoteControlCommand(type, payload) {
+    this._log("\u{1F3AE} Received remote control command:", type, payload.currentSrc || "");
+    switch (type) {
+      case "PLAY":
+        if (payload.currentSrc && payload.currentSrc !== this._engine.state.currentSrc) {
+          this._driver.play(payload.currentSrc);
+        } else {
+          this._driver.play();
+        }
+        break;
+      case "PAUSE":
+        this._driver.pause();
+        break;
+      case "STATE_UPDATE":
+        if (typeof payload.currentTime === "number" && isFinite(payload.currentTime)) {
+          this._driver.seek(payload.currentTime);
+        }
+        break;
+    }
   }
   _executeAction(action) {
     switch (action.action) {
@@ -940,6 +1545,35 @@ var AudioInstance = class extends EventEmitter {
         break;
     }
   }
+  // --- Private Helpers ---
+  /**
+   * Execute action with remote control logic:
+   * - If we're the leader: claim leadership and execute
+   * - If remote control enabled: send command or auto-claim if no leader
+   * - Otherwise: claim leadership and execute
+   */
+  _executeWithRemoteControlLogic(action, eventType, onRemoteCommand) {
+    const isRemoteControlFollower = this._config.allowRemoteControl && !this._coordinator.isLeader;
+    if (!isRemoteControlFollower) {
+      this._coordinator.claimLeadership(action, (a) => this._executeAction(a));
+      return;
+    }
+    if (!this._config.autoClaimLeadershipIfNone) {
+      onRemoteCommand();
+      this._broadcastState(eventType, true);
+      return;
+    }
+    this._coordinator.checkForActiveLeader((hasLeader) => {
+      if (hasLeader) {
+        this._log(`\u{1F4E1} Sending remote ${eventType} command to leader`);
+        onRemoteCommand();
+        this._broadcastState(eventType, true);
+      } else {
+        this._log("\u{1F451} No leader found, auto-claiming leadership");
+        this._coordinator.claimLeadership(action, (a) => this._executeAction(a));
+      }
+    });
+  }
   // --- Public API ---
   /**
    * Manually claim leadership on this tab.
@@ -947,50 +1581,53 @@ var AudioInstance = class extends EventEmitter {
    */
   becomeLeader() {
     if (this._config.singlePlayback) {
-      this._coordinator.claimLeadership({ action: "play" }, (a) => {
-        log3(this._instanceId, "\u{1F451} Manually became leader");
+      this._coordinator.claimLeadership({ action: "play" }, () => {
+        this._log("\u{1F451} Manually became leader");
       });
     }
   }
   play(src) {
-    if (this._config.singlePlayback) {
-      if (this._config.allowRemoteControl && !this._coordinator.isLeader) {
+    if (!this._config.singlePlayback) {
+      this._driver.play(src);
+      return;
+    }
+    this._executeWithRemoteControlLogic(
+      { action: "play", src },
+      "PLAY",
+      () => {
         if (src) {
           this._engine.setSyncState({ currentSrc: src, isPlaying: true });
         } else {
           this._engine.setSyncState({ isPlaying: true });
         }
-        this._broadcastState("PLAY");
-      } else {
-        this._coordinator.claimLeadership({ action: "play", src }, (a) => this._executeAction(a));
       }
-    } else {
-      this._driver.play(src);
-    }
+    );
   }
   pause() {
-    if (this._config.singlePlayback) {
-      if (this._config.allowRemoteControl && !this._coordinator.isLeader) {
-        this._engine.setSyncState({ isPlaying: false });
-        this._broadcastState("PAUSE");
-      } else {
-        this._coordinator.claimLeadership({ action: "pause" }, (a) => this._executeAction(a));
-      }
-    } else {
+    if (!this._config.singlePlayback) {
       this._driver.pause();
+      return;
     }
+    this._executeWithRemoteControlLogic(
+      { action: "pause" },
+      "PAUSE",
+      () => {
+        this._engine.setSyncState({ isPlaying: false });
+      }
+    );
   }
   seek(time) {
-    if (this._config.singlePlayback) {
-      if (this._config.allowRemoteControl && !this._coordinator.isLeader) {
-        this._engine.setSyncState({ currentTime: time });
-        this._broadcastState("STATE_UPDATE");
-      } else {
-        this._coordinator.claimLeadership({ action: "seek", seekTime: time }, (a) => this._executeAction(a));
-      }
-    } else {
+    if (!this._config.singlePlayback) {
       this._driver.seek(time);
+      return;
     }
+    this._executeWithRemoteControlLogic(
+      { action: "seek", seekTime: time },
+      "STATE_UPDATE",
+      () => {
+        this._engine.setSyncState({ currentTime: time });
+      }
+    );
   }
   setVolume(value) {
     this._driver.setVolume(value);
@@ -1016,12 +1653,20 @@ var AudioInstance = class extends EventEmitter {
     this._coordinator.close();
     this._driver.stop();
     this._engine.setSyncState(DEFAULT_PLAYER_STATE);
+    if (this._mediaSessionManager) {
+      this._mediaSessionManager.destroy();
+    }
   }
 };
 export {
   AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG,
+  AbstractDriver,
+  AbstractMediaSession,
   AudioInstance,
+  BrowserMediaSession,
   DEFAULT_PLAYLIST_CONFIG,
+  Driver,
+  MediaSessionManager,
   Playlist,
   PlaylistManager,
   SyncPresets,

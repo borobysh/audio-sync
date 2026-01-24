@@ -1,36 +1,45 @@
 import { AudioInstance, SyncPresets, Track } from "../../packages/core/src/index";
 
-// Sample tracks
 const tracks: Track[] = [
     {
         id: '1',
         src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
         title: 'Sound Helix Song 1',
-        artist: 'T. Schürger'
+        artist: 'T. Schürger',
+        album: 'Sound Helix Collection',
+        coverArt: 'https://picsum.photos/512/512?random=1'
     },
     {
         id: '2',
         src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
         title: 'Sound Helix Song 2',
-        artist: 'T. Schürger'
+        artist: 'T. Schürger',
+        album: 'Sound Helix Collection',
+        coverArt: 'https://picsum.photos/512/512?random=2'
     },
     {
         id: '3',
         src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
         title: 'Sound Helix Song 3',
-        artist: 'T. Schürger'
+        artist: 'T. Schürger',
+        album: 'Sound Helix Collection',
+        coverArt: 'https://picsum.photos/512/512?random=3'
     },
     {
         id: '4',
         src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
         title: 'Sound Helix Song 4',
-        artist: 'T. Schürger'
+        artist: 'T. Schürger',
+        album: 'Sound Helix Collection',
+        coverArt: 'https://picsum.photos/512/512?random=4'
     },
     {
         id: '5',
         src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
         title: 'Sound Helix Song 5',
-        artist: 'T. Schürger'
+        artist: 'T. Schürger',
+        album: 'Sound Helix Collection',
+        coverArt: 'https://picsum.photos/512/512?random=5'
     },
 ];
 
@@ -73,6 +82,20 @@ const config = {
         autoAdvance: true,
         defaultRepeatMode: 'all' as const,
         syncPlaylist: false
+    },
+
+    mediaSession: {
+        enabled: true,
+        seekStep: 10,
+        updateInterval: 1000,
+        actions: [
+            'play' as const,
+            'pause' as const,
+            'previoustrack' as const,
+            'nexttrack' as const,
+            'seekforward' as const,
+            'seekbackward' as const
+        ]
     }
 };
 
@@ -100,6 +123,7 @@ const roleBadge = document.getElementById('role-badge') as HTMLElement;
 // Now playing elements
 const currentTitle = document.getElementById('current-title') as HTMLElement;
 const currentArtist = document.getElementById('current-artist') as HTMLElement;
+const currentCover = document.getElementById('current-cover') as HTMLElement;
 
 // Playlist control buttons
 const prevBtn = document.getElementById('prev-btn') as HTMLButtonElement;
@@ -124,6 +148,9 @@ const instanceStatus = document.getElementById('instance-status') as HTMLElement
 // Buffering indicator
 const bufferingIndicator = document.getElementById('buffering-indicator') as HTMLElement;
 const bufferInfo = document.getElementById('buffer-info') as HTMLElement;
+
+const mediaSessionInfo = document.getElementById('media-session-info') as HTMLElement;
+const mediaSessionActiveBadge = document.getElementById('media-session-active-badge') as HTMLElement;
 
 let isDestroyed = false;
 
@@ -158,7 +185,6 @@ const renderPlaylist = () => {
     `;
     }).join('');
 
-    // Add click handlers
     playlistEl.querySelectorAll('.track-item').forEach(item => {
         item.addEventListener('click', () => {
             const index = parseInt(item.getAttribute('data-index') ?? '0');
@@ -175,13 +201,21 @@ const updateNowPlaying = () => {
 
     const current = playlist.currentTrack;
 
-    if (currentTitle && currentArtist) {
+    if (currentTitle && currentArtist && currentCover) {
         if (current) {
             currentTitle.textContent = current.title ?? 'Unknown Track';
             currentArtist.textContent = current.artist ?? 'Unknown Artist';
+            
+            // Update cover art
+            if (current.coverArt) {
+                currentCover.innerHTML = `<img src="${current.coverArt}" alt="Cover">`;
+            } else {
+                currentCover.innerHTML = '🎵';
+            }
         } else {
             currentTitle.textContent = 'No track playing';
             currentArtist.textContent = 'Select a track to start';
+            currentCover.innerHTML = '🎵';
         }
     }
 };
@@ -237,18 +271,25 @@ const updateUI = () => {
         roleBadge.className = "status-badge status-leader";
         roleBadge.style.background = "#e91e63";
         becomeLeaderBtn.disabled = true;
-        becomeLeaderBtn.textContent = "👑 You are Leader";
+        becomeLeaderBtn.textContent = "You are Leader";
     } else {
         roleBadge.innerText = "Follower (Syncing)";
         roleBadge.className = "status-badge status-follower";
         roleBadge.style.background = "#2196f3";
         becomeLeaderBtn.disabled = false;
-        becomeLeaderBtn.textContent = "👑 Become Leader";
+        becomeLeaderBtn.textContent = "Become Leader";
     }
 
     // Update now playing and playlist
     updateNowPlaying();
     updatePlaylistControls();
+    
+    // Update Media Session active badge
+    if (player.mediaSession?.isActive() && state.isLeader) {
+        mediaSessionActiveBadge.style.display = 'inline-block';
+    } else {
+        mediaSessionActiveBadge.style.display = 'none';
+    }
 };
 
 player.subscribe(updateUI);
@@ -258,6 +299,17 @@ renderPlaylist();
 updatePlaylistControls();
 updateNowPlaying();
 updateUI();
+
+if (player.mediaSession?.isSupported()) {
+    mediaSessionInfo.innerHTML = `
+        ✅ <strong>Supported!</strong> Media Session API activated.<br>
+    `;
+} else {
+    mediaSessionInfo.innerHTML = `
+        ⚠️ <strong>Not supported</strong> in this browser<br>
+        <span style="color: #888;">Playback works normally, but no OS-level controls.</span>
+    `;
+}
 
 // --- Controls ---
 
@@ -417,3 +469,49 @@ if (playlist) {
 
 console.log(`[Playground] Instance initialized: ${player.instanceId}`);
 console.log('[Playground] Available commands: playlist.next(), playlist.prev(), playlist.toggleShuffle()');
+console.log('[Playground] Media Session commands: player.mediaSession');
+
+// ═══════════════════════════════════════════════════════════════
+// 🎵 Media Session Event Logging
+// ═══════════════════════════════════════════════════════════════
+
+player.on('play', () => {
+    console.log('🎵 [Media Session] ▶️ Playback started');
+    if (player.isLeader) {
+        // Show visual notification
+        if (mediaSessionActiveBadge) {
+            mediaSessionActiveBadge.style.display = 'inline-block';
+            mediaSessionActiveBadge.style.animation = 'pulse 1s ease-in-out 3';
+        }
+    }
+});
+
+player.on('pause', () => {
+    console.log('🎵 [Media Session] ⏸️ Playback paused');
+    if (player.isLeader) {
+        console.log('   → Lock screen updated with pause state');
+    }
+});
+
+player.on('playlistTrackChanged', ({ current }) => {
+    console.log('🎵 [Media Session] 🎵 Track changed:', current?.title);
+    if (player.isLeader) {
+        console.log('   → Metadata updated:');
+        console.log('      • Title:', current?.title);
+        console.log('      • Artist:', current?.artist);
+        console.log('      • Album:', current?.album);
+        console.log('      • Cover:', current?.coverArt ? '✅' : '❌');
+        console.log('   💡 Check lock screen to see the new track info!');
+    }
+});
+
+player.on('leaderChange', ({ isLeader }) => {
+    if (isLeader) {
+        console.log('🎵 [Media Session] This tab now controls Media Session');
+        console.log('   → Lock screen controls are active');
+        console.log('   → Hardware buttons will work');
+    } else {
+        console.log('🎵 [Media Session] Another tab controls Media Session');
+        console.log('   → This tab released Media Session control');
+    }
+});

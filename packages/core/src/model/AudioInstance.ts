@@ -10,6 +10,9 @@ import { PlaylistConfig } from "./types/playlist.types";
 import { AudioInstanceEventData } from "./types/eventEmitter.types";
 import { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, describeSyncConfig, validateSyncConfig } from "../config/syncConfig";
 import { createLogger } from "../shared/logger";
+import { MediaSessionManager } from "./mediaSession/MediaSessionManager";
+import { MediaSessionConfig, MediaMetadata } from "./types/mediaSession.types";
+import { AbstractMediaSession } from "./mediaSession/AbstractMediaSession";
 
 const AUTHOR_LIB_TAG = '[borobysh/audio-sync]';
 
@@ -28,6 +31,16 @@ export interface AudioInstanceConfig extends SyncConfig {
      * If driver is not provided, this will be used to create a default Driver
      */
     audioElement?: any;
+    /**
+     * Media Session API configuration
+     * Enables OS-level media controls (lock screen, notifications, hardware buttons)
+     */
+    mediaSession?: Partial<MediaSessionConfig>;
+    /**
+     * Custom Media Session implementation for dependency injection
+     * Allows you to provide your own Media Session implementation
+     */
+    mediaSessionImpl?: AbstractMediaSession;
 }
 
 /**
@@ -40,6 +53,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     private readonly _coordinator: SyncCoordinator;
     private readonly _playbackSyncHandler: PlaybackSyncHandler;
     private readonly _playlistManager: PlaylistManager | null;
+    private readonly _mediaSessionManager: MediaSessionManager | null;
     private readonly _config: Required<SyncConfig>;
     private readonly _instanceId: string;
     private readonly _log: ReturnType<typeof createLogger>;
@@ -81,12 +95,17 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             {
                 onRemoteEvent: (type, payload, timestamp) => this._handleRemoteEvent(type, payload, timestamp),
                 onLeadershipChange: (isLeader) => {
-                    this._log(isLeader ? '👑 Became leader' : '👑➡️ Giving up leadership');
+                    this._log(isLeader ? 'Became leader' : 'Giving up leadership');
                     this._emitEvent('leaderChange', { isLeader });
+
+                    // Notify Media Session Manager about leadership change
+                    if (this._mediaSessionManager) {
+                        this._mediaSessionManager.onLeadershipChange(isLeader);
+                    }
 
                     // If singlePlayback is enabled and we lost leadership while playing, stop audio
                     if (!isLeader && this._config.singlePlayback && this._engine.state.isPlaying) {
-                        this._log('🔇 Stopping real playback (lost leadership)');
+                        this._log('Stopping real playback (lost leadership)');
                         this._driver.pauseSilently();
                     }
                 },
@@ -107,6 +126,9 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             }
         ) : null;
 
+        // Initialize Media Session if config provided
+        this._mediaSessionManager = this._initMediaSession(config);
+
         this._initCoreListeners();
         this._initPeriodicSync();
 
@@ -114,7 +136,11 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             this._initPlaylistListeners();
         }
 
-        this._log('🚀 Instance created, sending SYNC_REQUEST');
+        if (this._mediaSessionManager) {
+            this._initMediaSessionListeners();
+        }
+
+        this._log('Instance created, sending SYNC_REQUEST');
         this._coordinator.broadcast('SYNC_REQUEST', {});
     }
 
@@ -130,6 +156,10 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
 
     public get playlist(): PlaylistManager | null {
         return this._playlistManager;
+    }
+
+    public get mediaSession(): MediaSessionManager | null {
+        return this._mediaSessionManager;
     }
 
     public get instanceId(): string {
@@ -229,17 +259,135 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         this._playlistManager.on('shuffleChanged', (data) => this._emitEvent('playlistShuffleChanged', data));
     }
 
+    private _initMediaSession(config: AudioInstanceConfig): MediaSessionManager | null {
+        if (config.mediaSession?.enabled === false) {
+            return null;
+        }
+
+        // Default config
+        const mediaSessionConfig: MediaSessionConfig = {
+            enabled: true,
+            seekStep: 10,
+            updateInterval: 1000,
+            ...config.mediaSession
+        };
+
+        // Create callbacks for Media Session actions
+        const callbacks = {
+            onPlay: () => {
+                this._log('Media Session: play');
+                this.play();
+            },
+            onPause: () => {
+                this._log('Media Session: pause');
+                this.pause();
+            },
+            onStop: () => {
+                this._log('Media Session: stop');
+                this.stop();
+            },
+            onSeekBackward: (seekOffset?: number) => {
+                const offset = seekOffset || mediaSessionConfig.seekStep;
+                const newTime = Math.max(0, this._engine.state.currentTime - offset);
+                this._log('Media Session: seekbackward', offset, 'seconds');
+                this.seek(newTime);
+            },
+            onSeekForward: (seekOffset?: number) => {
+                const offset = seekOffset || mediaSessionConfig.seekStep;
+                const newTime = Math.min(
+                    this._engine.state.duration || Infinity,
+                    this._engine.state.currentTime + offset
+                );
+                this._log('Media Session: seekforward', offset, 'seconds');
+                this.seek(newTime);
+            },
+            onSeekTo: (seekTime: number) => {
+                this._log('Media Session: seekto', seekTime);
+                this.seek(seekTime);
+            },
+            onPreviousTrack: this._playlistManager ? () => {
+                this._log('Media Session: previoustrack');
+                this._playlistManager!.prev();
+            } : undefined,
+            onNextTrack: this._playlistManager ? () => {
+                this._log('Media Session: nexttrack');
+                this._playlistManager!.next();
+            } : undefined
+        };
+
+        return new MediaSessionManager(
+            mediaSessionConfig,
+            callbacks,
+            config.mediaSessionImpl
+        );
+    }
+
+    private _initMediaSessionListeners() {
+        if (!this._mediaSessionManager) {
+            return;
+        }
+
+        // Update Media Session on state changes
+        this._engine.on('state_change', () => {
+            this._mediaSessionManager!.onStateUpdate(this.state);
+        });
+
+        // Update Media Session on track change
+        this.on('trackChange', ({ src }) => {
+            // Extract metadata from current track
+            // For now, use basic metadata - can be enhanced later
+            const metadata: MediaMetadata = {
+                title: src || 'Unknown Track',
+                artist: 'Unknown Artist'
+            };
+
+            // If playlist is available, get metadata from current track
+            if (this._playlistManager) {
+                const currentTrack = this._playlistManager.currentTrack;
+                if (currentTrack) {
+                    metadata.title = currentTrack.title || currentTrack.src;
+                    metadata.artist = currentTrack.artist;
+                    metadata.album = currentTrack.album;
+                    
+                    // Convert coverArt URL to artwork array
+                    if (currentTrack.coverArt) {
+                        metadata.artwork = [
+                            { src: currentTrack.coverArt, sizes: '512x512', type: 'image/jpeg' }
+                        ];
+                    }
+                }
+            }
+
+            this._mediaSessionManager!.onTrackChange(metadata);
+        });
+
+        // Update Media Session on playback state change
+        this.on('play', () => {
+            this._mediaSessionManager!.onPlaybackStateChange(true);
+        });
+
+        this.on('pause', () => {
+            this._mediaSessionManager!.onPlaybackStateChange(false);
+        });
+
+        this.on('stop', () => {
+            this._mediaSessionManager!.onPlaybackStateChange(false);
+        });
+    }
+
     private _broadcastState(type: AudioEvent['type'], isRemoteCommand: boolean = false, customData?: any) {
         this._coordinator.broadcast(type, {
             ...this._engine.state,
-            isLeader: !isRemoteCommand,  // Remote commands don't claim leadership
+            isLeader: !isRemoteCommand,
             isRemoteCommand,
             customData
         });
     }
 
     private _initPeriodicSync() {
-        if (this._config.syncInterval <= 0) return;
+        if (this._config.syncInterval <= 0) {
+            return;
+        }
         this._syncIntervalId = setInterval(() => {
             if (this._coordinator.isLeader && this._engine.state.isPlaying) {
                 this._broadcastState('STATE_UPDATE');
@@ -285,10 +433,8 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         switch (type) {
             case 'PLAY':
                 if (payload.currentSrc && payload.currentSrc !== this._engine.state.currentSrc) {
-                    // Play new track
                     this._driver.play(payload.currentSrc);
                 } else {
-                    // Resume playback
                     this._driver.play();
                 }
                 break;
@@ -298,7 +444,6 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
                 break;
 
             case 'STATE_UPDATE':
-                // Seek command
                 if (typeof payload.currentTime === 'number' && isFinite(payload.currentTime)) {
                     this._driver.seek(payload.currentTime);
                 }
@@ -356,12 +501,12 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         this._coordinator.checkForActiveLeader((hasLeader) => {
             if (hasLeader) {
                 // Leader exists, send remote command
-                this._log(`📡 Sending remote ${eventType} command to leader`);
+                this._log(`Sending remote ${eventType} command to leader`);
                 onRemoteCommand();
                 this._broadcastState(eventType, true);
             } else {
                 // No leader found, auto-claim leadership
-                this._log('👑 No leader found, auto-claiming leadership');
+                this._log('No leader found, auto-claiming leadership');
                 this._coordinator.claimLeadership(action, (a) => this._executeAction(a));
             }
         });
@@ -376,7 +521,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     public becomeLeader() {
         if (this._config.singlePlayback) {
             this._coordinator.claimLeadership({ action: 'play' }, () => {
-                this._log('👑 Manually became leader');
+                this._log('Manually became leader');
             });
         }
     }
@@ -459,5 +604,10 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         this._coordinator.close();
         this._driver.stop();
         this._engine.setSyncState(DEFAULT_PLAYER_STATE);
+        
+        // Cleanup Media Session
+        if (this._mediaSessionManager) {
+            this._mediaSessionManager.destroy();
+        }
     }
 }

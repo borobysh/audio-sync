@@ -1,46 +1,3 @@
-"use strict";
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-
-// src/internals/index.ts
-var internals_exports = {};
-__export(internals_exports, {
-  AudioReadyState: () => AudioReadyState,
-  DEFAULT_PLAYER_STATE: () => DEFAULT_PLAYER_STATE,
-  Driver: () => Driver,
-  Engine: () => Engine,
-  EventEmitter: () => EventEmitter,
-  LatencyCompensator: () => LatencyCompensator,
-  PlaybackSyncHandler: () => PlaybackSyncHandler,
-  SyncCoordinator: () => SyncCoordinator
-});
-module.exports = __toCommonJS(internals_exports);
-
-// src/model/types/driver.types.ts
-var AudioReadyState = /* @__PURE__ */ ((AudioReadyState2) => {
-  AudioReadyState2[AudioReadyState2["HAVE_NOTHING"] = 0] = "HAVE_NOTHING";
-  AudioReadyState2[AudioReadyState2["HAVE_METADATA"] = 1] = "HAVE_METADATA";
-  AudioReadyState2[AudioReadyState2["HAVE_CURRENT_DATA"] = 2] = "HAVE_CURRENT_DATA";
-  AudioReadyState2[AudioReadyState2["HAVE_FUTURE_DATA"] = 3] = "HAVE_FUTURE_DATA";
-  AudioReadyState2[AudioReadyState2["HAVE_ENOUGH_DATA"] = 4] = "HAVE_ENOUGH_DATA";
-  return AudioReadyState2;
-})(AudioReadyState || {});
-
 // src/config/engine.config.ts
 var DEFAULT_PLAYER_STATE = {
   isPlaying: false,
@@ -157,6 +114,24 @@ var Engine = class {
   }
 };
 
+// src/model/types/driver.types.ts
+var AudioReadyState = /* @__PURE__ */ ((AudioReadyState2) => {
+  AudioReadyState2[AudioReadyState2["HAVE_NOTHING"] = 0] = "HAVE_NOTHING";
+  AudioReadyState2[AudioReadyState2["HAVE_METADATA"] = 1] = "HAVE_METADATA";
+  AudioReadyState2[AudioReadyState2["HAVE_CURRENT_DATA"] = 2] = "HAVE_CURRENT_DATA";
+  AudioReadyState2[AudioReadyState2["HAVE_FUTURE_DATA"] = 3] = "HAVE_FUTURE_DATA";
+  AudioReadyState2[AudioReadyState2["HAVE_ENOUGH_DATA"] = 4] = "HAVE_ENOUGH_DATA";
+  return AudioReadyState2;
+})(AudioReadyState || {});
+
+// src/model/drivers/AbstractDriver.ts
+var AbstractDriver = class {
+  engine;
+  constructor(engine) {
+    this.engine = engine;
+  }
+};
+
 // src/shared/logger.ts
 var DEBUG = true;
 function createLogger(moduleName, instanceId) {
@@ -167,14 +142,6 @@ function createLogger(moduleName, instanceId) {
     }
   };
 }
-
-// src/model/drivers/AbstractDriver.ts
-var AbstractDriver = class {
-  engine;
-  constructor(engine) {
-    this.engine = engine;
-  }
-};
 
 // src/model/Driver.ts
 var logDriver = createLogger("Driver");
@@ -865,14 +832,16 @@ var PlaybackSyncHandler = class {
     }
   }
 };
-// Annotate the CommonJS export names for ESM import in node:
-0 && (module.exports = {
-  AudioReadyState,
+
+export {
   DEFAULT_PLAYER_STATE,
-  Driver,
   Engine,
+  AudioReadyState,
+  createLogger,
+  AbstractDriver,
+  Driver,
   EventEmitter,
+  SyncCoordinator,
   LatencyCompensator,
-  PlaybackSyncHandler,
-  SyncCoordinator
-});
+  PlaybackSyncHandler
+};
