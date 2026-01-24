@@ -1,4 +1,4 @@
-import { AudioEngineContract, AudioState } from "../types/engine.types";
+import { AudioEngineContract } from "../types/engine.types";
 
 /**
  * Abstract Driver interface - contract for AudioInstance
