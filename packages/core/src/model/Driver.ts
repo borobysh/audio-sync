@@ -172,6 +172,60 @@ export class Driver {
             // Emit ended event
             (this.engine as any).emitEnded?.();
         };
+
+        // Buffering events
+        this.audio.addEventListener('waiting', () => {
+            logDriver('🔄 Audio waiting (buffering started)');
+            (this.engine as any).setBuffering?.(true);
+        });
+
+        this.audio.addEventListener('canplay', () => {
+            logDriver('✅ Audio canplay (buffering ended)');
+            (this.engine as any).setBuffering?.(false);
+        });
+
+        this.audio.addEventListener('canplaythrough', () => {
+            logDriver('✅ Audio canplaythrough (fully buffered)');
+            (this.engine as any).setBuffering?.(false);
+        });
+
+        this.audio.addEventListener('progress', () => {
+            // Calculate how many seconds are buffered from current position
+            if (this.audio.buffered && this.audio.buffered.length > 0) {
+                try {
+                    const currentTime = this.audio.currentTime;
+                    let bufferedSeconds = 0;
+
+                    // Find the buffered range that contains current time
+                    for (let i = 0; i < this.audio.buffered.length; i++) {
+                        const start = this.audio.buffered.start(i);
+                        const end = this.audio.buffered.end(i);
+
+                        if (currentTime >= start && currentTime <= end) {
+                            bufferedSeconds = end - currentTime;
+                            break;
+                        }
+                    }
+
+                    (this.engine as any).setBufferProgress?.(bufferedSeconds);
+                } catch (err) {
+                    // Ignore errors (can happen during source changes)
+                }
+            }
+        });
+
+        this.audio.addEventListener('loadstart', () => {
+            logDriver('📥 Audio loadstart (starting to load)');
+            (this.engine as any).setBuffering?.(true);
+        });
+
+        this.audio.addEventListener('loadedmetadata', () => {
+            logDriver('📊 Audio loadedmetadata');
+        });
+
+        this.audio.addEventListener('loadeddata', () => {
+            logDriver('📦 Audio loadeddata');
+        });
     }
 
     public on(event: EngineEventType, callback: Function) {

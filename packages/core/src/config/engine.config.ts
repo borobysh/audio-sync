@@ -8,4 +8,6 @@ export const DEFAULT_PLAYER_STATE: AudioState = {
     volume: 1,
     muted: false,
     error: null,
+    isBuffering: false,
+    bufferedSeconds: 0,
 };

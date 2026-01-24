@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audio Sync Playground</title>
+    <title>Audio Sync - Player & Playlist</title>
     <style>
         body {
             font-family: system-ui, -apple-system, sans-serif;
@@ -12,8 +12,9 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
+            padding: 20px;
         }
 
         .card {
@@ -21,7 +22,8 @@
             padding: 2rem;
             border-radius: 16px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
-            width: 360px;
+            width: 450px;
+            max-width: 100%;
             text-align: center;
         }
 
@@ -213,30 +215,117 @@
             font-size: 12px;
         }
 
+        .now-playing {
+            background: linear-gradient(135deg, #1db954 0%, #1ed760 100%);
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+
+        .now-playing h3 {
+            margin: 0 0 5px 0;
+            font-size: 18px;
+            color: black;
+        }
+
+        .now-playing p {
+            margin: 0;
+            font-size: 13px;
+            color: rgba(0, 0, 0, 0.7);
+        }
+
+        .playlist-controls {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .playlist-controls button {
+            flex: 1;
+            padding: 10px 12px;
+            font-size: 13px;
+        }
+
+        .playlist-controls button.active {
+            background: #1db954;
+            color: black;
+        }
+
         .playlist {
             text-align: left;
             margin-top: 20px;
             border-top: 1px solid #333;
             padding-top: 20px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .playlist::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .playlist::-webkit-scrollbar-track {
+            background: #282828;
+            border-radius: 4px;
+        }
+
+        .playlist::-webkit-scrollbar-thumb {
+            background: #444;
+            border-radius: 4px;
+        }
+
+        .playlist::-webkit-scrollbar-thumb:hover {
+            background: #555;
         }
 
         .track-item {
-            padding: 8px;
-            border-radius: 6px;
+            padding: 10px;
+            border-radius: 8px;
             cursor: pointer;
             font-size: 13px;
-            margin-bottom: 4px;
+            margin-bottom: 6px;
             background: #282828;
             transition: 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
 
         .track-item:hover {
             background: #333;
+            transform: translateX(3px);
         }
 
         .track-item.active {
             background: #1db954;
             color: black;
+        }
+
+        .track-number {
+            font-weight: bold;
+            font-size: 16px;
+            min-width: 25px;
+            color: #1db954;
+        }
+
+        .track-item.active .track-number {
+            color: black;
+        }
+
+        .track-info {
+            flex: 1;
+        }
+
+        .track-title {
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+
+        .track-artist {
+            font-size: 11px;
+            opacity: 0.7;
         }
 
         .info {
@@ -296,14 +385,70 @@
             right: 0;
             bottom: 0;
         }
+
+        .buffering-indicator {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: rgba(255, 152, 0, 0.1);
+            border-left: 3px solid #ff9800;
+            border-radius: 4px;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #ff9800;
+        }
+
+        .buffering-indicator.active {
+            display: flex;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255, 152, 0, 0.3);
+            border-top-color: #ff9800;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .buffer-info {
+            font-size: 11px;
+            color: #666;
+            margin-top: 5px;
+        }
     </style>
 </head>
 <body>
 
 <div class="card">
     <div id="role-badge" class="status-badge status-follower">Waiting...</div>
-    <h2>Audio Sync MVP</h2>
-    <p id="track-name">Select track</p>
+    <h2>Audio Sync - Player & Playlist</h2>
+    
+    <div class="now-playing">
+        <h3 id="current-title">No track playing</h3>
+        <p id="current-artist">Select a track to start</p>
+    </div>
+
+    <div id="buffering-indicator" class="buffering-indicator">
+        <div class="spinner"></div>
+        <span>Loading audio...</span>
+    </div>
+    <div id="buffer-info" class="buffer-info"></div>
+
+    <div class="controls-section">
+        <div class="controls-label">Playlist</div>
+        <div class="playlist-controls">
+            <button id="prev-btn">⏮️ Prev</button>
+            <button id="next-btn">⏭️ Next</button>
+            <button id="shuffle-btn">🔀 Shuffle</button>
+            <button id="repeat-btn">🔁 Repeat</button>
+        </div>
+    </div>
 
     <div class="controls-section">
         <div class="controls-label">Playback</div>
@@ -346,15 +491,7 @@
     </div>
 
     <div class="playlist" id="playlist">
-        <div class="track-item" data-src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3">Track 1 -
-            Energy
-        </div>
-        <div class="track-item" data-src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3">Track 2 - Chill
-            Out
-        </div>
-        <div class="track-item" data-src="https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3">Track 3 - Deep
-            Vibes
-        </div>
+        <!-- Playlist items will be dynamically rendered -->
     </div>
 
     <div class="controls-section" style="margin-top: 20px; border-top: 1px solid #333; padding-top: 15px;">

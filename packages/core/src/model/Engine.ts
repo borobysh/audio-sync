@@ -96,6 +96,28 @@ export class Engine implements AudioEngineContract {
         this.emit('error', this._state.error);
     }
 
+    /**
+     * Update buffering state.
+     * Called by Driver when audio starts/stops buffering.
+     */
+    public setBuffering(isBuffering: boolean) {
+        if (this._state.isBuffering !== isBuffering) {
+            this._state.isBuffering = isBuffering;
+            this.emit('buffering', { isBuffering });
+            this.emit('state_change');
+        }
+    }
+
+    /**
+     * Update buffer progress.
+     * Called by Driver when buffer data changes.
+     */
+    public setBufferProgress(bufferedSeconds: number) {
+        this._state.bufferedSeconds = bufferedSeconds;
+        this.emit('buffer_progress', { bufferedSeconds });
+        // Don't emit state_change for every progress update (too frequent)
+    }
+
     public get state(): AudioState {
         return { ...this._state };
     }

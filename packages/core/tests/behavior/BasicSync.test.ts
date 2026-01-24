@@ -35,6 +35,7 @@ class MockAudio {
     public volume: number = 1;
     public muted: boolean = false;
     public readyState: number = AudioReadyState.HAVE_ENOUGH_DATA;
+    public buffered: any = { length: 0, start: () => 0, end: () => 0 };
     public ontimeupdate: any = null;
     public onplaying: any = null;
     public onpause: any = null;
@@ -48,6 +49,10 @@ class MockAudio {
 
     pause = vi.fn(() => {
         if (this.onpause) this.onpause();
+    });
+
+    addEventListener = vi.fn((event: string, handler: any) => {
+        // Mock addEventListener - do nothing in tests
     });
 }
 

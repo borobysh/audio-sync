@@ -7,6 +7,8 @@ import { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG } from "../config/sync.config";
 import { DEFAULT_PLAYER_STATE } from "../config/engine.config";
 import { LatencyCompensator } from "./sync/LatencyCompensator";
 import { PendingAction, SyncCoordinator } from "./sync/SyncCoordinator";
+import { PlaylistManager } from "./playlist/PlaylistManager";
+import { PlaylistConfig } from "./types/playlist.types";
 
 const DEBUG = true;
 const log = (instanceId: string, ...args: any[]) => {
@@ -16,19 +18,27 @@ const log = (instanceId: string, ...args: any[]) => {
 };
 
 /**
+ * Configuration for AudioInstance including sync and playlist settings
+ */
+export interface AudioInstanceConfig extends SyncConfig {
+    playlist?: Partial<PlaylistConfig>;
+}
+
+/**
  * AudioInstance - The main entry point of the library.
- * Now acts as a manager coordinating the engine, driver, and synchronization.
+ * Now acts as a manager coordinating the engine, driver, synchronization, and playlist.
  */
 export class AudioInstance extends EventEmitter {
     private readonly _engine: Engine;
     private readonly _driver: Driver;
     private readonly _coordinator: SyncCoordinator;
+    private readonly _playlistManager: PlaylistManager | null;
     private readonly _config: Required<SyncConfig>;
     private readonly _instanceId: string;
     
     private _syncIntervalId: ReturnType<typeof setInterval> | null = null;
 
-    constructor(channelName: string = 'audio_sync_v1', config: SyncConfig = {}) {
+    constructor(channelName: string = 'audio_sync_v1', config: AudioInstanceConfig = {}) {
         super();
         this._instanceId = Math.random().toString(36).substring(2, 11);
         this._config = { ...AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, ...config };
@@ -60,8 +70,21 @@ export class AudioInstance extends EventEmitter {
             }
         );
 
+        // Initialize playlist if config provided
+        this._playlistManager = config.playlist !== undefined ? new PlaylistManager(
+            config.playlist,
+            {
+                onPlayTrack: (src) => this.play(src),
+                onBroadcast: (type, payload) => this._coordinator.broadcast(type as any, payload)
+            }
+        ) : null;
+
         this._initCoreListeners();
         this._initPeriodicSync();
+        
+        if (this._playlistManager) {
+            this._initPlaylistListeners();
+        }
 
         log(this._instanceId, '🚀 Instance created, sending SYNC_REQUEST');
         this._coordinator.broadcast('SYNC_REQUEST', {});
@@ -71,6 +94,7 @@ export class AudioInstance extends EventEmitter {
 
     public get engine(): Engine { return this._engine; }
     public get driver(): Driver { return this._driver; }
+    public get playlist(): PlaylistManager | null { return this._playlistManager; }
     public get instanceId(): string { return this._instanceId; }
     public get state(): SyncCoreState {
         return {
@@ -118,11 +142,34 @@ export class AudioInstance extends EventEmitter {
         this._engine.on('pause', () => { broadcastLocalAction('PAUSE'); this._emitEvent('pause', undefined); });
         this._engine.on('stop', () => this._emitEvent('stop', undefined));
         this._engine.on('seek', () => { broadcastLocalAction('STATE_UPDATE'); this._emitEvent('seek', { time: this._engine.state.currentTime }); });
-        this._engine.on('ended', () => this._emitEvent('ended', undefined));
+        this._engine.on('ended', () => {
+            this._emitEvent('ended', undefined);
+            // Auto-advance to next track if playlist is enabled
+            if (this._playlistManager) {
+                this._playlistManager.onTrackEnded();
+            }
+        });
         this._engine.on('error', () => {
             const error = this._engine.state.error;
             if (error) this._emitEvent('error', error);
         });
+        this._engine.on('buffering', ({ isBuffering }: { isBuffering: boolean }) => {
+            this._emitEvent('buffering', { isBuffering });
+        });
+        this._engine.on('buffer_progress', ({ bufferedSeconds }: { bufferedSeconds: number }) => {
+            this._emitEvent('bufferProgress', { bufferedSeconds });
+        });
+    }
+
+    private _initPlaylistListeners() {
+        if (!this._playlistManager) return;
+
+        // Forward all playlist events to AudioInstance
+        this._playlistManager.on('trackChanged', (data) => this._emitEvent('playlistTrackChanged', data));
+        this._playlistManager.on('queueUpdated', (data) => this._emitEvent('playlistQueueUpdated', data));
+        this._playlistManager.on('playlistEnded', (data) => this._emitEvent('playlistEnded', data));
+        this._playlistManager.on('repeatModeChanged', (data) => this._emitEvent('playlistRepeatModeChanged', data));
+        this._playlistManager.on('shuffleChanged', (data) => this._emitEvent('playlistShuffleChanged', data));
     }
 
     private _broadcastState(type: AudioEvent['type']) {
@@ -149,6 +196,12 @@ export class AudioInstance extends EventEmitter {
     }
 
     private _handleRemoteEvent(type: AudioEvent['type'], payload: Partial<SyncCoreState>, timestamp: number) {
+        // Handle playlist events
+        if (this._playlistManager && type.startsWith('PLAYLIST_')) {
+            this._playlistManager.handleRemoteAction(type, payload);
+            return;
+        }
+
         if (!this._isSyncAllowed(type)) return;
 
         const latency = (Date.now() - timestamp) / 1000;

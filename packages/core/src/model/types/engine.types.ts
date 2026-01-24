@@ -11,6 +11,8 @@ export type AudioState = {
     volume: number;
     muted: boolean;
     error: AudioError;
+    isBuffering: boolean;
+    bufferedSeconds: number; // How many seconds are buffered from current position
 }
 
 export type EngineEventType =
@@ -20,7 +22,9 @@ export type EngineEventType =
     | 'stop'
     | 'seek'
     | 'ended'
-    | 'error';
+    | 'error'
+    | 'buffering'
+    | 'buffer_progress';
 
 export interface AudioEngineContract {
     state: AudioState;
