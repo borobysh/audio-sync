@@ -100,6 +100,8 @@ export type SyncConfig = Partial<{
         seek?: boolean;
         /** Allow remote playback rate change commands (default: true) */
         playbackRate?: boolean;
+        /** Allow remote track change commands (playlist next/prev/jump) (default: true) */
+        trackChange?: boolean;
     };
     /**
      * Automatically become leader if no active leader exists when trying to perform an action.

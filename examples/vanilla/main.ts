@@ -96,6 +96,10 @@ const config: AudioInstanceConfig = {
             'seekforward' as const,
             'seekbackward' as const
         ]
+    },
+
+    remoteSync: {
+        playbackRate: false,
     }
 };
 

@@ -11,8 +11,14 @@ const log = createLogger('PlaybackRateManager');
 export interface PlaybackRateManagerCallbacks {
     /** Called when playback rate should be broadcast to other tabs */
     onBroadcast?: (type: string, payload: any) => void;
-      /** Check if playback rate sync is enabled */
+    /** Check if playback rate sync is enabled */
     isSyncEnabled?: () => boolean;
+    /** Check if playback rate remote control is allowed */
+    isRemoteControlAllowed?: () => boolean;
+    /** Check if we're in remote control mode as follower */
+    isRemoteControlFollower?: () => boolean;
+    /** Check if allowRemoteControl is enabled */
+    isAllowRemoteControlEnabled?: () => boolean;
 }
 
 /**
@@ -237,17 +243,31 @@ export class PlaybackRateManager extends EventEmitter<PlaybackRateEventPayloads>
     private _applyRate(rate: number, broadcast: boolean): void {
         this._driver.setPlaybackRate(rate);
 
-        // Broadcast to other tabs if enabled, sync is enabled, and not processing remote change
-        const shouldBroadcast = broadcast && 
-            !this._isProcessingRemote && 
-            this._callbacks.onBroadcast &&
-            (this._callbacks.isSyncEnabled ? this._callbacks.isSyncEnabled() : true);
-        
-        if (shouldBroadcast) {
-            this._callbacks.onBroadcast('PLAYBACK_RATE_CHANGE', {
-                playbackRate: rate
-            });
+        if (!broadcast || this._isProcessingRemote || !this._callbacks.onBroadcast) {
+            return;
         }
+
+        // Check if sync is enabled
+        const isSyncEnabled = this._callbacks.isSyncEnabled ? this._callbacks.isSyncEnabled() : true;
+        if (!isSyncEnabled) {
+            return;
+        }
+
+        // If allowRemoteControl is enabled, check remoteSync flag for ALL sync operations
+        // This prevents sync when remoteSync.playbackRate is false, even in normal sync mode
+        const isAllowRemoteControlEnabled = this._callbacks.isAllowRemoteControlEnabled?.() || false;
+        if (isAllowRemoteControlEnabled) {
+            const isRemoteControlAllowed = this._callbacks.isRemoteControlAllowed ? 
+                this._callbacks.isRemoteControlAllowed() : true;
+            if (!isRemoteControlAllowed) {
+                return; // remoteSync.playbackRate is false, block all sync
+            }
+        }
+
+        // Broadcast to other tabs
+        this._callbacks.onBroadcast('PLAYBACK_RATE_CHANGE', {
+            playbackRate: rate
+        });
     }
 
     /**

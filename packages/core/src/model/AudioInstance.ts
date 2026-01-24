@@ -76,7 +76,17 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     constructor(channelName: string = 'audio_sync_v1', config: AudioInstanceConfig = {}) {
         super();
         this._instanceId = Math.random().toString(36).substring(2, 11);
-        this._config = { ...AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, ...config };
+        
+        // Deep merge remoteSync config
+        const defaultRemoteSync = AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG.remoteSync || AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG;
+        const userRemoteSync = config.remoteSync || {};
+        const mergedRemoteSync = { ...defaultRemoteSync, ...userRemoteSync };
+        
+        this._config = { 
+            ...AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, 
+            ...config,
+            remoteSync: mergedRemoteSync
+        };
         this._log = createLogger('Sync', this._instanceId);
 
         this._validateConfig()
@@ -135,7 +145,10 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             config.playlist,
             {
                 onPlayTrack: (src) => this.play(src),
-                onBroadcast: (type, payload) => this._coordinator.broadcast(type as any, payload)
+                onBroadcast: (type, payload) => this._coordinator.broadcast(type as any, payload),
+                isTrackChangeRemoteControlAllowed: () => this._isRemoteControlAllowed('trackChange'),
+                isRemoteControlFollower: () => this._config.allowRemoteControl && !this._coordinator.isLeader,
+                isAllowRemoteControlEnabled: () => this._config.allowRemoteControl
             }
         ) : null;
 
@@ -148,7 +161,10 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             config.playbackRate || {},
             {
                 onBroadcast: (type, payload) => this._coordinator.broadcast(type as any, payload),
-                isSyncEnabled: () => this._config.syncPlaybackRate
+                isSyncEnabled: () => this._config.syncPlaybackRate,
+                isRemoteControlAllowed: () => this._isRemoteControlAllowed('playbackRate'),
+                isRemoteControlFollower: () => this._config.allowRemoteControl && !this._coordinator.isLeader,
+                isAllowRemoteControlEnabled: () => this._config.allowRemoteControl
             }
         );
 
@@ -549,7 +565,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     /**
      * Check if a specific action is allowed for remote control
      */
-    private _isRemoteControlAllowed(action: 'play' | 'pause' | 'stop' | 'seek' | 'playbackRate'): boolean {
+    private _isRemoteControlAllowed(action: 'play' | 'pause' | 'stop' | 'seek' | 'playbackRate' | 'trackChange'): boolean {
         if (!this._config.allowRemoteControl) {
             return false;
         }
@@ -569,6 +585,8 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
                 return remoteSync.seek !== false;
             case 'playbackRate':
                 return remoteSync.playbackRate !== false;
+            case 'trackChange':
+                return remoteSync.trackChange !== false;
             default:
                 return false;
         }
@@ -759,7 +777,8 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         // Check if we're in remote control mode as a follower
         const isRemoteControlFollower = this._config.allowRemoteControl &&
             !this._coordinator.isLeader &&
-            this._config.syncPlaybackRate;
+            this._config.syncPlaybackRate &&
+            this._isRemoteControlAllowed('playbackRate');
 
         if (isRemoteControlFollower) {
             // Send remote command to leader

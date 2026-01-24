@@ -1,7 +1,3 @@
-/**
- * Sync configuration presets, defaults, and validation utilities
- */
-
 import { SyncConfig } from "../model/types/syncCore.types";
 import {
     IndependentTabsConfig,
@@ -18,7 +14,8 @@ export const AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG = {
     pause: true,
     stop: true,
     seek: true,
-    playbackRate: true
+    playbackRate: true,
+    trackChange: true
 } as const;
 
 /**
@@ -54,6 +51,7 @@ export const SyncPresets = {
         singlePlayback: false,
         syncInterval: 0,
         allowRemoteControl: false,
+        remoteSync: AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG,
         autoClaimLeadershipIfNone: false,
     } satisfies IndependentTabsConfig,
 
@@ -69,6 +67,7 @@ export const SyncPresets = {
         singlePlayback: false,
         syncInterval: 1000,
         allowRemoteControl: false,
+        remoteSync: AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG,
         autoClaimLeadershipIfNone: false,
     } satisfies SynchronizedTabsConfig,
 
@@ -81,9 +80,11 @@ export const SyncPresets = {
         syncPause: true,
         syncSeek: true,
         syncTrackChange: true,
+        syncPlaybackRate: true,
         singlePlayback: true,
         syncInterval: 1000,
         allowRemoteControl: true,
+        remoteSync: AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG,
         autoClaimLeadershipIfNone: true,
     } satisfies RemoteControlConfig,
 
@@ -100,6 +101,7 @@ export const SyncPresets = {
         singlePlayback: false,
         syncInterval: 0,
         allowRemoteControl: false,
+        remoteSync: AUDIO_INSTANCE_DEFAULT_REMOTE_SYNC_CONFIG,
         autoClaimLeadershipIfNone: false,
     } satisfies CustomSyncConfig,
 

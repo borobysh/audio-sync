@@ -14,6 +14,12 @@ export interface PlaylistManagerCallbacks {
     onPlayTrack: (src: string) => void;
     /** Called when playlist actions should be broadcast */
     onBroadcast?: (type: string, payload: any) => void;
+    /** Check if track change remote control is enabled */
+    isTrackChangeRemoteControlAllowed?: () => boolean;
+    /** Check if we're in remote control mode as follower */
+    isRemoteControlFollower?: () => boolean;
+    /** Check if allowRemoteControl is enabled */
+    isAllowRemoteControlEnabled?: () => boolean;
 }
 
 /**
@@ -134,7 +140,7 @@ export class PlaylistManager extends EventEmitter<PlaylistEventPayloads> {
         if (success && this._playlist.currentTrack) {
             this._callbacks.onPlayTrack(this._playlist.currentTrack.src);
             if (!this._isProcessingRemote) {
-                this._broadcastAction('PLAYLIST_JUMP', { queueIndex });
+                this._broadcastTrackChangeAction('PLAYLIST_JUMP', { queueIndex });
             }
         }
         return success;
@@ -148,7 +154,7 @@ export class PlaylistManager extends EventEmitter<PlaylistEventPayloads> {
         if (nextTrack) {
             this._callbacks.onPlayTrack(nextTrack.src);
             if (!this._isProcessingRemote) {
-                this._broadcastAction('PLAYLIST_NEXT', {});
+                this._broadcastTrackChangeAction('PLAYLIST_NEXT', {});
             }
             return true;
         }
@@ -163,7 +169,7 @@ export class PlaylistManager extends EventEmitter<PlaylistEventPayloads> {
         if (prevTrack) {
             this._callbacks.onPlayTrack(prevTrack.src);
             if (!this._isProcessingRemote) {
-                this._broadcastAction('PLAYLIST_PREV', {});
+                this._broadcastTrackChangeAction('PLAYLIST_PREV', {});
             }
             return true;
         }
@@ -299,6 +305,39 @@ export class PlaylistManager extends EventEmitter<PlaylistEventPayloads> {
      */
     private _broadcastAction(type: string, payload: any): void {
         if (this._config.syncPlaylist && this._callbacks.onBroadcast) {
+            this._callbacks.onBroadcast(type, payload);
+        }
+    }
+
+    /**
+     * Broadcast track change action (next/prev/jump) with remote control check
+     */
+    private _broadcastTrackChangeAction(type: string, payload: any): void {
+        if (!this._callbacks.onBroadcast) {
+            return;
+        }
+
+        // Check if allowRemoteControl is enabled
+        const isAllowRemoteControlEnabled = this._callbacks.isAllowRemoteControlEnabled?.() || false;
+        
+        // If allowRemoteControl is enabled, check remoteSync flag for ALL sync operations
+        // This prevents sync when remoteSync.trackChange is false, even in normal sync mode
+        if (isAllowRemoteControlEnabled) {
+            const isTrackChangeAllowed = !this._callbacks.isTrackChangeRemoteControlAllowed || 
+                                        this._callbacks.isTrackChangeRemoteControlAllowed();
+            if (!isTrackChangeAllowed) {
+                return; // remoteSync.trackChange is false, block all sync
+            }
+        }
+
+        // Check if we're in remote control mode as follower
+        const isRemoteControlFollower = this._callbacks.isRemoteControlFollower?.() || false;
+        
+        // Send if: (syncPlaylist enabled) OR (remote control enabled and trackChange allowed)
+        const shouldBroadcast = (this._config.syncPlaylist) || 
+                               (isRemoteControlFollower);
+        
+        if (shouldBroadcast) {
             this._callbacks.onBroadcast(type, payload);
         }
     }
