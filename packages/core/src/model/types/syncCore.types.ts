@@ -21,6 +21,10 @@ export type AudioEvent = {
         src?: string;
         /** Time for seek action */
         seekTime?: number;
+        /** True if this is a remote control command (follower sending to leader) */
+        isRemoteCommand?: boolean;
+        /** Custom user data - can be any arbitrary data you want to sync */
+        customData?: any;
     };
     timestamp: number;
     /** ID of the instance that sent this event **/
@@ -54,4 +58,18 @@ export type SyncConfig = Partial<{
      * Default: 100 ms
      */
     leadershipHandshakeTimeout: number;
+    /**
+     * Allow followers to send control commands (play, pause, seek, track change) 
+     * without automatically becoming leaders.
+     * Useful for remote control scenarios (like Spotify Connect).
+     * Leadership must be claimed manually via becomeLeader() method.
+     * Default: false
+     */
+    allowRemoteControl: boolean;
+    /**
+     * Automatically become leader if no active leader exists when trying to perform an action.
+     * Only works when allowRemoteControl is true.
+     * Default: true
+     */
+    autoClaimLeadershipIfNone: boolean;
 }>

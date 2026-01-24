@@ -28,10 +28,10 @@ export type {
 } from "./model/types/syncConfig.types";
 export { 
     SyncPresets,
+    AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG,
     validateSyncConfig,
     describeSyncConfig 
 } from "./model/types/syncConfig.types";
 
 // Public config
-export { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG } from "./config/sync.config";
 export { DEFAULT_PLAYLIST_CONFIG } from "./config/playlist.config";

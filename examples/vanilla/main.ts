@@ -48,11 +48,19 @@ const tracks: Track[] = [
 //   → All tabs play same content in perfect sync
 //   → Use case: Same user, consistent experience
 // 
-// SyncPresets.REMOTE_CONTROL
-//   → One tab plays, others control (like Spotify)
-//   → Use case: Desktop plays, phone controls
+// SyncPresets.REMOTE_CONTROL ✅ CURRENT
+//   → One tab plays (leader), others can control remotely
+//   → Followers can play/pause/seek/change tracks without becoming leaders
+//   → To become leader, click "Become Leader" button
+//   → Use case: Desktop plays, phone controls (Spotify-style)
 // 
-// SyncPresets.SYNCED_PLAYBACK_INDEPENDENT_TRACKS ✅ CURRENT
+// SyncPresets.PLAY_PAUSE_SYNC
+//   → Each tab becomes leader when it plays/pauses
+//   → Simple sync: only play/pause state syncs
+//   → No track or seek synchronization
+//   → Use case: Independent playback with basic state sync
+//
+// SyncPresets.SYNCED_PLAYBACK_INDEPENDENT_TRACKS
 //   → Play/pause syncs, but each tab has its own track
 //   → Use case: Each tab plays different song but playback state syncs
 // 
@@ -81,6 +89,7 @@ playlist.addMany(tracks);
 const playBtn = document.getElementById('play') as HTMLButtonElement;
 const pauseBtn = document.getElementById('pause') as HTMLButtonElement;
 const stopBtn = document.getElementById('stop') as HTMLButtonElement;
+const becomeLeaderBtn = document.getElementById('become-leader') as HTMLButtonElement;
 const progressBar = document.getElementById('progress-bar') as HTMLElement;
 const progressFill = document.getElementById('progress-fill') as HTMLElement;
 const timeCurrent = document.getElementById('time-current') as HTMLElement;
@@ -227,10 +236,14 @@ const updateUI = () => {
         roleBadge.innerText = "Leader (Broadcasting)";
         roleBadge.className = "status-badge status-leader";
         roleBadge.style.background = "#e91e63";
+        becomeLeaderBtn.disabled = true;
+        becomeLeaderBtn.textContent = "👑 You are Leader";
     } else {
         roleBadge.innerText = "Follower (Syncing)";
         roleBadge.className = "status-badge status-follower";
         roleBadge.style.background = "#2196f3";
+        becomeLeaderBtn.disabled = false;
+        becomeLeaderBtn.textContent = "👑 Become Leader";
     }
 
     // Update now playing and playlist
@@ -247,6 +260,10 @@ updateNowPlaying();
 updateUI();
 
 // --- Controls ---
+
+becomeLeaderBtn.addEventListener('click', () => {
+    player.becomeLeader();
+});
 
 playBtn.addEventListener('click', () => {
     const state = player.state;
@@ -348,7 +365,8 @@ destroyBtn.addEventListener('click', () => {
     destroyBtn.disabled = true;
     destroyBtn.style.opacity = '0.5';
 
-    [playBtn, pauseBtn, stopBtn, muteBtn, unmuteBtn, seekBtn].forEach(btn => {
+    [playBtn, pauseBtn, stopBtn, muteBtn, unmuteBtn, seekBtn, becomeLeaderBtn, 
+     prevBtn, nextBtn, shuffleBtn, repeatBtn].forEach(btn => {
         btn.disabled = true;
         btn.style.opacity = '0.5';
     });

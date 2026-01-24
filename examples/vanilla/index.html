@@ -119,6 +119,23 @@
             background: #bdbdbd;
         }
 
+        button.leadership-btn {
+            background: linear-gradient(135deg, #e91e63 0%, #ff6090 100%);
+            color: white;
+            font-weight: bold;
+            width: 100%;
+        }
+
+        button.leadership-btn:hover {
+            background: linear-gradient(135deg, #ff6090 0%, #e91e63 100%);
+            transform: scale(1.02);
+        }
+
+        button.leadership-btn:disabled {
+            background: #555;
+            opacity: 0.4;
+        }
+
         .volume-control {
             display: flex;
             align-items: center;
@@ -447,6 +464,13 @@
             <button id="next-btn">⏭️ Next</button>
             <button id="shuffle-btn">🔀 Shuffle</button>
             <button id="repeat-btn">🔁 Repeat</button>
+        </div>
+    </div>
+
+    <div class="controls-section">
+        <div class="controls-label">Leadership (Remote Control Mode)</div>
+        <div class="controls-row">
+            <button id="become-leader" class="leadership-btn"> Become Leader</button>
         </div>
     </div>
 

@@ -1,13 +1,9 @@
 import { AudioElementContract, AudioReadyState } from "./types/driver.types";
 import { AudioEngineContract, AudioState, EngineEventType } from "./types/engine.types";
 import { Engine } from "./Engine";
+import { createLogger } from "../shared/logger";
 
-const DEBUG = true;
-const logDriver = (...args: any[]) => {
-    if (DEBUG) {
-        console.log('[Driver]', ...args);
-    }
-};
+const logDriver = createLogger('Driver');
 
 export class Driver {
     private audio: AudioElementContract;

@@ -29,6 +29,9 @@ export class SyncCoordinator {
     private _pendingAction: PendingAction | null = null;
     private _handshakeTimeoutId: ReturnType<typeof setTimeout> | null = null;
     private _isProcessingRemoteEvent: boolean = false;
+    private _lastLeaderMessageTimestamp: number = 0;
+    private _leaderCheckCallback: ((hasLeader: boolean) => void) | null = null;
+    private _leaderCheckTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
     constructor(
         instanceId: string,
@@ -57,6 +60,36 @@ export class SyncCoordinator {
 
     public get isProcessingRemoteEvent(): boolean {
         return this._isProcessingRemoteEvent;
+    }
+
+    /**
+     * Check if there's an active leader by sending a ping and waiting for response
+     */
+    public checkForActiveLeader(callback: (hasLeader: boolean) => void, timeout: number = 200) {
+        if (this._isLeader) {
+            // We are the leader
+            callback(true);
+            return;
+        }
+
+        // Check if we received a message from leader recently (within last 3 seconds)
+        const timeSinceLastLeaderMessage = Date.now() - this._lastLeaderMessageTimestamp;
+        if (timeSinceLastLeaderMessage < 3000) {
+            // Leader is active
+            callback(true);
+            return;
+        }
+
+        // Send SYNC_REQUEST and wait for response
+        this._leaderCheckCallback = callback;
+        this.broadcast('SYNC_REQUEST', {});
+
+        this._leaderCheckTimeoutId = setTimeout(() => {
+            if (this._leaderCheckCallback) {
+                this._leaderCheckCallback(false);  // No leader found
+                this._leaderCheckCallback = null;
+            }
+        }, timeout);
     }
 
     /**
@@ -157,8 +190,23 @@ export class SyncCoordinator {
                     return;
                 }
 
-                // If someone else becomes the leader, we remove the crown
-                if (['PLAY', 'PAUSE', 'STATE_UPDATE'].includes(type) && payload.isLeader) {
+                // Track when we last heard from a leader
+                if (payload.isLeader && ['PLAY', 'PAUSE', 'STATE_UPDATE'].includes(type)) {
+                    this._lastLeaderMessageTimestamp = Date.now();
+                    
+                    // If we were checking for a leader, notify callback
+                    if (this._leaderCheckCallback) {
+                        if (this._leaderCheckTimeoutId) {
+                            clearTimeout(this._leaderCheckTimeoutId);
+                            this._leaderCheckTimeoutId = null;
+                        }
+                        this._leaderCheckCallback(true);  // Leader found
+                        this._leaderCheckCallback = null;
+                    }
+                }
+
+                // If someone else becomes the leader (but NOT a remote command), we remove the crown
+                if (['PLAY', 'PAUSE', 'STATE_UPDATE'].includes(type) && payload.isLeader && !payload.isRemoteCommand) {
                     if (this._isLeader) {
                         this.setLeader(false);
                     }
@@ -192,6 +240,9 @@ export class SyncCoordinator {
     public close() {
         if (this._handshakeTimeoutId) {
             clearTimeout(this._handshakeTimeoutId);
+        }
+        if (this._leaderCheckTimeoutId) {
+            clearTimeout(this._leaderCheckTimeoutId);
         }
         this._channel.close();
     }

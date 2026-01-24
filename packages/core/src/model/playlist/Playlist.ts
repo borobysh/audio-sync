@@ -1,12 +1,8 @@
 import { EventEmitter } from "../EventEmitter";
 import { Track, RepeatMode, PlaylistState, PlaylistEventPayloads } from "../types/playlist.types";
+import { createLogger } from "../../shared/logger";
 
-const DEBUG = true;
-const log = (...args: any[]) => {
-    if (DEBUG) {
-        console.log('[Playlist]', ...args);
-    }
-};
+const log = createLogger('Playlist');
 
 /**
  * Playlist - Pure logic for managing a queue of tracks

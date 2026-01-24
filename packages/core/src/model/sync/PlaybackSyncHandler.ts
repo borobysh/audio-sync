@@ -3,13 +3,7 @@ import { AudioState } from "../types/engine.types";
 import { LatencyCompensator } from "./LatencyCompensator";
 import { Driver } from "../Driver";
 import { Engine } from "../Engine";
-
-const DEBUG = true;
-const log = (instanceId: string, ...args: any[]) => {
-    if (DEBUG) {
-        console.log(`[PlaybackSync:${instanceId.slice(0, 4)}]`, ...args);
-    }
-};
+import { createLogger } from "../../shared/logger";
 
 /**
  * PlaybackSyncHandler - Handles synchronization of playback actions
@@ -25,6 +19,7 @@ export class PlaybackSyncHandler {
     private readonly _config: Required<SyncConfig>;
     private readonly _driver: Driver;
     private readonly _engine: Engine;
+    private readonly _log: ReturnType<typeof createLogger>;
 
     constructor(
         instanceId: string,
@@ -36,6 +31,7 @@ export class PlaybackSyncHandler {
         this._config = config;
         this._driver = driver;
         this._engine = engine;
+        this._log = createLogger('PlaybackSync', instanceId);
     }
 
     /**
@@ -129,7 +125,7 @@ export class PlaybackSyncHandler {
                 }
             } else if (isSourceChanging && this._config.syncTrackChange) {
                 // Track is changing and we sync tracks
-                log(this._instanceId, '🎵 Playing new track:', payload.currentSrc);
+                this._log('🎵 Playing new track:', payload.currentSrc);
                 this._driver.play(payload.currentSrc || undefined);
                 if (this._config.syncSeek && isFinite(adjustedTime) && adjustedTime >= 0) {
                     this._driver.seekWhenReady(adjustedTime);
@@ -199,18 +195,18 @@ export class PlaybackSyncHandler {
             if (payload.isPlaying && !this._engine.state.isPlaying) {
                 // Remote started playing
                 if (isTrackChanging && this._config.syncTrackChange) {
-                    log(this._instanceId, '▶️ Remote started new track:', payload.currentSrc);
+                    this._log('▶️ Remote started new track:', payload.currentSrc);
                     this._driver.play(payload.currentSrc || undefined);
                 } else if (!isTrackChanging) {
                     this._driver.play();
                 }
             } else if (!payload.isPlaying && this._engine.state.isPlaying) {
                 // Remote paused
-                log(this._instanceId, '⏸️ Remote paused');
+                this._log('⏸️ Remote paused');
                 this._driver.pause();
             } else if (isTrackChanging && payload.isPlaying && this._config.syncTrackChange) {
                 // Remote changed track while playing
-                log(this._instanceId, '🔄 Remote changed track:', payload.currentSrc);
+                this._log('🔄 Remote changed track:', payload.currentSrc);
                 this._driver.play(payload.currentSrc || undefined);
             }
         }
@@ -239,7 +235,7 @@ export class PlaybackSyncHandler {
 
         // 300ms threshold prevents micro-stutters during playback
         if (diff > 0.3) {
-            log(this._instanceId, `⏱️ Seeking to ${adjustedTime.toFixed(2)}s (diff=${diff.toFixed(2)}s)`);
+            this._log(`⏱️ Seeking to ${adjustedTime.toFixed(2)}s (diff=${diff.toFixed(2)}s)`);
             this._driver.seek(adjustedTime);
         }
     }

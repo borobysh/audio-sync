@@ -1,13 +1,24 @@
-/**
- * Type-safe sync configuration with validation
- */
-
 import { SyncConfig } from "./syncCore.types";
+
+/**
+ * Default sync configuration for AudioInstance
+ */
+export const AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG: Required<SyncConfig> = {
+    syncPlay: true,
+    syncPause: true,
+    syncSeek: false,
+    syncTrackChange: true,
+    singlePlayback: true,
+    syncInterval: 1000,
+    leadershipHandshakeTimeout: 100,
+    allowRemoteControl: false,
+    autoClaimLeadershipIfNone: true
+};
 
 /**
  * Validated sync configuration that prevents conflicting combinations
  */
-export type ValidatedSyncConfig = 
+export type ValidatedSyncConfig =
     | IndependentTabsConfig
     | SynchronizedTabsConfig
     | RemoteControlConfig
@@ -15,7 +26,7 @@ export type ValidatedSyncConfig =
 
 /**
  * 1️⃣ Independent Tabs Mode
- * 
+ *
  * Use case: Each tab plays its own content independently
  * Example: User has multiple tabs with different playlists
  */
@@ -29,7 +40,7 @@ export interface IndependentTabsConfig extends SyncConfig {
 
 /**
  * 2️⃣ Synchronized Tabs Mode
- * 
+ *
  * Use case: All tabs play the same content in perfect sync
  * Example: User wants consistent experience across all tabs
  */
@@ -43,7 +54,7 @@ export interface SynchronizedTabsConfig extends SyncConfig {
 
 /**
  * 3️⃣ Remote Control Mode (like Spotify Connect)
- * 
+ *
  * Use case: One tab plays audio, others can control it
  * Example: Desktop plays, phone controls
  */
@@ -57,7 +68,7 @@ export interface RemoteControlConfig extends SyncConfig {
 
 /**
  * 4️⃣ Custom Sync Mode
- * 
+ *
  * For advanced use cases - no validation
  */
 export interface CustomSyncConfig extends SyncConfig {
@@ -78,6 +89,8 @@ export const SyncPresets = {
         syncTrackChange: false,
         singlePlayback: false,
         syncInterval: 0,  // No periodic sync needed
+        allowRemoteControl: false,
+        autoClaimLeadershipIfNone: false,
     } satisfies IndependentTabsConfig,
 
     /**
@@ -90,10 +103,13 @@ export const SyncPresets = {
         syncTrackChange: true,
         singlePlayback: false,
         syncInterval: 1000,
+        allowRemoteControl: false,
+        autoClaimLeadershipIfNone: false,
     } satisfies SynchronizedTabsConfig,
 
     /**
      * One tab plays, others control (like Spotify Connect)
+     * Followers can control playback but must manually claim leadership to play audio
      */
     REMOTE_CONTROL: {
         syncPlay: true,
@@ -102,7 +118,24 @@ export const SyncPresets = {
         syncTrackChange: true,
         singlePlayback: true,
         syncInterval: 1000,
+        allowRemoteControl: true,
+        autoClaimLeadershipIfNone: true,
     } satisfies RemoteControlConfig,
+
+    /**
+     * Simple play/pause sync - each tab becomes leader when it plays/pauses
+     * No track or seek synchronization
+     */
+    PLAY_PAUSE_SYNC: {
+        syncPlay: true,
+        syncPause: true,
+        syncSeek: false,
+        syncTrackChange: false,
+        singlePlayback: false,
+        syncInterval: 0,
+        allowRemoteControl: false,
+        autoClaimLeadershipIfNone: false,
+    } satisfies CustomSyncConfig,
 
     /**
      * Synced playback but independent tracks
@@ -114,6 +147,8 @@ export const SyncPresets = {
         syncTrackChange: false,
         singlePlayback: false,
         syncInterval: 0,
+        allowRemoteControl: false,
+        autoClaimLeadershipIfNone: false,
     } satisfies CustomSyncConfig,
 } as const;
 
@@ -134,10 +169,10 @@ export function validateSyncConfig(config: Partial<SyncConfig>): {
         );
     }
 
-    if (config.singlePlayback === false && 
-        config.syncPlay === false && 
-        config.syncPause === false && 
-        config.syncSeek === false && 
+    if (config.singlePlayback === false &&
+        config.syncPlay === false &&
+        config.syncPause === false &&
+        config.syncSeek === false &&
         config.syncTrackChange === false) {
         warnings.push(
             '⚠️ All tabs play but nothing is synced - ' +

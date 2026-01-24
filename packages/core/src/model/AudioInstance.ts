@@ -2,22 +2,16 @@ import { Engine } from './Engine';
 import { Driver } from './Driver';
 import { EventEmitter } from "./EventEmitter";
 import { AudioEvent, SyncConfig, SyncCoreState } from "./types/syncCore.types";
-import { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG } from "../config/sync.config";
 import { DEFAULT_PLAYER_STATE } from "../config/engine.config";
 import { PendingAction, SyncCoordinator } from "./sync/SyncCoordinator";
 import { PlaybackSyncHandler } from "./sync/PlaybackSyncHandler";
 import { PlaylistManager } from "./playlist/PlaylistManager";
 import { PlaylistConfig } from "./types/playlist.types";
 import { AudioInstanceEventData } from "./types/eventEmitter.types";
-import { describeSyncConfig, validateSyncConfig } from "./types/syncConfig.types";
+import { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, describeSyncConfig, validateSyncConfig } from "./types/syncConfig.types";
+import { createLogger } from "../shared/logger";
 
-const DEBUG = true;
-const AUTHOR_LIB_TAG = '[borobysh/audio-sync]'
-const log = (instanceId: string, ...args: any[]) => {
-    if (DEBUG) {
-        console.log(`[Sync:${instanceId.slice(0, 4)}]`, ...args);
-    }
-};
+const AUTHOR_LIB_TAG = '[borobysh/audio-sync]';
 
 /**
  * Configuration for AudioInstance including sync and playlist settings
@@ -38,6 +32,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     private readonly _playlistManager: PlaylistManager | null;
     private readonly _config: Required<SyncConfig>;
     private readonly _instanceId: string;
+    private readonly _log: ReturnType<typeof createLogger>;
 
     private _syncIntervalId: ReturnType<typeof setInterval> | null = null;
 
@@ -45,6 +40,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         super();
         this._instanceId = Math.random().toString(36).substring(2, 11);
         this._config = { ...AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, ...config };
+        this._log = createLogger('Sync', this._instanceId);
 
         this._validateConfig()
 
@@ -66,12 +62,12 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             {
                 onRemoteEvent: (type, payload, timestamp) => this._handleRemoteEvent(type, payload, timestamp),
                 onLeadershipChange: (isLeader) => {
-                    log(this._instanceId, isLeader ? '👑 Became leader' : '👑➡️ Giving up leadership');
+                    this._log(isLeader ? '👑 Became leader' : '👑➡️ Giving up leadership');
                     this._emitEvent('leaderChange', { isLeader });
 
                     // If singlePlayback is enabled and we lost leadership while playing, stop audio
                     if (!isLeader && this._config.singlePlayback && this._engine.state.isPlaying) {
-                        log(this._instanceId, `🔇 Stopping real playback (lost leadership)`);
+                        this._log('🔇 Stopping real playback (lost leadership)');
                         this._driver.pauseSilently();
                     }
                 },
@@ -99,7 +95,7 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             this._initPlaylistListeners();
         }
 
-        log(this._instanceId, '🚀 Instance created, sending SYNC_REQUEST');
+        this._log('🚀 Instance created, sending SYNC_REQUEST');
         this._coordinator.broadcast('SYNC_REQUEST', {});
     }
 
@@ -214,10 +210,12 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         this._playlistManager.on('shuffleChanged', (data) => this._emitEvent('playlistShuffleChanged', data));
     }
 
-    private _broadcastState(type: AudioEvent['type']) {
+    private _broadcastState(type: AudioEvent['type'], isRemoteCommand: boolean = false, customData?: any) {
         this._coordinator.broadcast(type, {
             ...this._engine.state,
-            isLeader: true
+            isLeader: !isRemoteCommand,  // Remote commands don't claim leadership
+            isRemoteCommand,
+            customData
         });
     }
 
@@ -247,8 +245,46 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
             return;
         }
 
+        // Handle remote control commands (from followers to leader)
+        const isRemoteCommand = (payload as any).isRemoteCommand === true;
+        if (this._coordinator.isLeader && isRemoteCommand) {
+            this._handleRemoteControlCommand(type, payload);
+            return;
+        }
+
         // Route playback events to PlaybackSyncHandler
         this._playbackSyncHandler.handleRemoteEvent(type, payload, timestamp);
+    }
+
+    /**
+     * Handle remote control commands sent by followers
+     * Only executed on leader
+     */
+    private _handleRemoteControlCommand(type: AudioEvent['type'], payload: Partial<SyncCoreState>) {
+        this._log('🎮 Received remote control command:', type, payload.currentSrc || '');
+
+        switch (type) {
+            case 'PLAY':
+                if (payload.currentSrc && payload.currentSrc !== this._engine.state.currentSrc) {
+                    // Play new track
+                    this._driver.play(payload.currentSrc);
+                } else {
+                    // Resume playback
+                    this._driver.play();
+                }
+                break;
+
+            case 'PAUSE':
+                this._driver.pause();
+                break;
+
+            case 'STATE_UPDATE':
+                // Seek command
+                if (typeof payload.currentTime === 'number' && isFinite(payload.currentTime)) {
+                    this._driver.seek(payload.currentTime);
+                }
+                break;
+        }
     }
 
     private _executeAction(action: PendingAction) {
@@ -268,30 +304,111 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         }
     }
 
+    // --- Private Helpers ---
+
+    /**
+     * Execute action with remote control logic:
+     * - If we're the leader: claim leadership and execute
+     * - If remote control enabled: send command or auto-claim if no leader
+     * - Otherwise: claim leadership and execute
+     */
+    private _executeWithRemoteControlLogic(
+        action: PendingAction,
+        eventType: AudioEvent['type'],
+        onRemoteCommand: () => void
+    ) {
+        const isRemoteControlFollower = this._config.allowRemoteControl && !this._coordinator.isLeader;
+        
+        if (!isRemoteControlFollower) {
+            // Normal mode: claim leadership and execute
+            this._coordinator.claimLeadership(action, (a) => this._executeAction(a));
+            return;
+        }
+
+        // Remote control mode
+        if (!this._config.autoClaimLeadershipIfNone) {
+            // Just send remote command without checking for leader
+            onRemoteCommand();
+            this._broadcastState(eventType, true);
+            return;
+        }
+
+        // Check if leader exists before sending command
+        this._coordinator.checkForActiveLeader((hasLeader) => {
+            if (hasLeader) {
+                // Leader exists, send remote command
+                this._log(`📡 Sending remote ${eventType} command to leader`);
+                onRemoteCommand();
+                this._broadcastState(eventType, true);
+            } else {
+                // No leader found, auto-claim leadership
+                this._log('👑 No leader found, auto-claiming leadership');
+                this._coordinator.claimLeadership(action, (a) => this._executeAction(a));
+            }
+        });
+    }
+
     // --- Public API ---
 
-    public play(src?: string) {
+    /**
+     * Manually claim leadership on this tab.
+     * Useful in remote control mode where followers control playback without auto-leadership.
+     */
+    public becomeLeader() {
         if (this._config.singlePlayback) {
-            this._coordinator.claimLeadership({ action: 'play', src }, (a) => this._executeAction(a));
-        } else {
-            this._driver.play(src);
+            this._coordinator.claimLeadership({ action: 'play' }, () => {
+                this._log('👑 Manually became leader');
+            });
         }
+    }
+
+    public play(src?: string) {
+        if (!this._config.singlePlayback) {
+            this._driver.play(src);
+            return;
+        }
+
+        this._executeWithRemoteControlLogic(
+            { action: 'play', src },
+            'PLAY',
+            () => {
+                if (src) {
+                    this._engine.setSyncState({ currentSrc: src, isPlaying: true });
+                } else {
+                    this._engine.setSyncState({ isPlaying: true });
+                }
+            }
+        );
     }
 
     public pause() {
-        if (this._config.singlePlayback) {
-            this._coordinator.claimLeadership({ action: 'pause' }, (a) => this._executeAction(a));
-        } else {
+        if (!this._config.singlePlayback) {
             this._driver.pause();
+            return;
         }
+
+        this._executeWithRemoteControlLogic(
+            { action: 'pause' },
+            'PAUSE',
+            () => {
+                this._engine.setSyncState({ isPlaying: false });
+            }
+        );
     }
 
     public seek(time: number) {
-        if (this._config.singlePlayback) {
-            this._coordinator.claimLeadership({ action: 'seek', seekTime: time }, (a) => this._executeAction(a));
-        } else {
+        if (!this._config.singlePlayback) {
             this._driver.seek(time);
+            return;
         }
+
+        this._executeWithRemoteControlLogic(
+            { action: 'seek', seekTime: time },
+            'STATE_UPDATE',
+            () => {
+                this._engine.setSyncState({ currentTime: time });
+            }
+        );
     }
 
     public setVolume(value: number) {

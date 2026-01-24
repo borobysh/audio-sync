@@ -478,7 +478,8 @@ var AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG = {
   syncTrackChange: true,
   singlePlayback: true,
   syncInterval: 1e3,
-  leadershipHandshakeTimeout: 100
+  leadershipHandshakeTimeout: 100,
+  allowRemoteControl: false
 };
 
 // src/model/sync/SyncCoordinator.ts
@@ -1419,8 +1420,126 @@ var PlaylistManager = class extends EventEmitter {
   }
 };
 
+// src/model/types/syncConfig.types.ts
+var SyncPresets = {
+  /**
+   * Each tab is completely independent
+   */
+  INDEPENDENT: {
+    syncPlay: false,
+    syncPause: false,
+    syncSeek: false,
+    syncTrackChange: false,
+    singlePlayback: false,
+    syncInterval: 0,
+    // No periodic sync needed
+    allowRemoteControl: false
+  },
+  /**
+   * All tabs play the same content in sync
+   */
+  SYNCHRONIZED: {
+    syncPlay: true,
+    syncPause: true,
+    syncSeek: true,
+    syncTrackChange: true,
+    singlePlayback: false,
+    syncInterval: 1e3,
+    allowRemoteControl: false
+  },
+  /**
+   * One tab plays, others control (like Spotify Connect)
+   * Followers can control playback but must manually claim leadership to play audio
+   */
+  REMOTE_CONTROL: {
+    syncPlay: true,
+    syncPause: true,
+    syncSeek: true,
+    syncTrackChange: true,
+    singlePlayback: true,
+    syncInterval: 1e3,
+    allowRemoteControl: true
+    // Followers can control without becoming leaders
+  },
+  /**
+   * Simple play/pause sync - each tab becomes leader when it plays/pauses
+   * No track or seek synchronization
+   */
+  PLAY_PAUSE_SYNC: {
+    syncPlay: true,
+    syncPause: true,
+    syncSeek: false,
+    syncTrackChange: false,
+    singlePlayback: false,
+    syncInterval: 0,
+    allowRemoteControl: false
+  },
+  /**
+   * Synced playback but independent tracks
+   */
+  SYNCED_PLAYBACK_INDEPENDENT_TRACKS: {
+    syncPlay: true,
+    syncPause: true,
+    syncSeek: false,
+    syncTrackChange: false,
+    singlePlayback: false,
+    syncInterval: 0,
+    allowRemoteControl: false
+  }
+};
+function validateSyncConfig(config) {
+  const warnings = [];
+  if (config.singlePlayback === true && config.syncPlay === false) {
+    warnings.push(
+      "\u26A0\uFE0F singlePlayback: true + syncPlay: false - Only leader plays, but play events are not synced. This may cause confusion."
+    );
+  }
+  if (config.singlePlayback === false && config.syncPlay === false && config.syncPause === false && config.syncSeek === false && config.syncTrackChange === false) {
+    warnings.push(
+      "\u26A0\uFE0F All tabs play but nothing is synced - Consider using singlePlayback: true or enabling some sync options."
+    );
+  }
+  if (config.syncTrackChange === true && config.syncPlay === false) {
+    warnings.push(
+      "\u26A0\uFE0F syncTrackChange: true + syncPlay: false - Tracks sync but play state does not. This may cause unexpected behavior."
+    );
+  }
+  if (config.singlePlayback === true && config.syncInterval === 0) {
+    warnings.push(
+      "\u{1F4A1} singlePlayback: true + syncInterval: 0 - Consider enabling periodic sync for better follower state tracking."
+    );
+  }
+  return {
+    valid: warnings.length === 0,
+    warnings
+  };
+}
+function describeSyncConfig(config) {
+  const features = [];
+  if (config.singlePlayback) {
+    features.push("\u{1F3B5} Only leader tab plays audio");
+  } else {
+    features.push("\u{1F50A} All tabs play audio simultaneously");
+  }
+  if (config.syncTrackChange) {
+    features.push("\u{1F3B5} Tracks sync across tabs");
+  } else {
+    features.push("\u{1F3B5} Each tab plays independent tracks");
+  }
+  if (config.syncPlay && config.syncPause) {
+    features.push("\u23EF\uFE0F Play/pause syncs");
+  }
+  if (config.syncSeek) {
+    features.push("\u23E9 Seek/time syncs");
+  } else {
+    features.push("\u23E9 Each tab can seek independently");
+  }
+  return features.join("\n");
+}
+
 // src/model/AudioInstance.ts
 var DEBUG5 = true;
+var AUTHOR_LIB_TAG = "[borobysh/audio-sync]";
 var log4 = (instanceId, ...args) => {
   if (DEBUG5) {
     console.log(`[Sync:${instanceId.slice(0, 4)}]`, ...args);
@@ -1439,6 +1558,7 @@ var AudioInstance = class extends EventEmitter {
     super();
     this._instanceId = Math.random().toString(36).substring(2, 11);
     this._config = { ...AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, ...config };
+    this._validateConfig();
     this._engine = new Engine();
     this._driver = new Driver(this._engine);
     this._playbackSyncHandler = new PlaybackSyncHandler(
@@ -1509,6 +1629,15 @@ var AudioInstance = class extends EventEmitter {
   // Delegate to PlaybackSyncHandler
   _isSyncAllowed(type) {
     return this._playbackSyncHandler.isSyncAllowed(type);
+  }
+  _validateConfig() {
+    const validation = validateSyncConfig(this._config);
+    if (validation.warnings.length > 0) {
+      console.warn(`${AUTHOR_LIB_TAG} Configuration warnings:`);
+      validation.warnings.forEach((w) => console.warn(w));
+    }
+    console.log(`${AUTHOR_LIB_TAG} Current configuration:`);
+    console.log(describeSyncConfig(this._config));
   }
   _initCoreListeners() {
     let previousSrc = null;
@@ -1611,23 +1740,53 @@ var AudioInstance = class extends EventEmitter {
     }
   }
   // --- Public API ---
+  /**
+   * Manually claim leadership on this tab.
+   * Useful in remote control mode where followers control playback without auto-leadership.
+   */
+  becomeLeader() {
+    if (this._config.singlePlayback) {
+      this._coordinator.claimLeadership({ action: "play" }, (a) => {
+        log4(this._instanceId, "\u{1F451} Manually became leader");
+      });
+    }
+  }
   play(src) {
     if (this._config.singlePlayback) {
-      this._coordinator.claimLeadership({ action: "play", src }, (a) => this._executeAction(a));
+      if (this._config.allowRemoteControl && !this._coordinator.isLeader) {
+        if (src) {
+          this._engine.setSyncState({ currentSrc: src, isPlaying: true });
+        } else {
+          this._engine.setSyncState({ isPlaying: true });
+        }
+        this._broadcastState("PLAY");
+      } else {
+        this._coordinator.claimLeadership({ action: "play", src }, (a) => this._executeAction(a));
+      }
     } else {
       this._driver.play(src);
     }
   }
   pause() {
     if (this._config.singlePlayback) {
-      this._coordinator.claimLeadership({ action: "pause" }, (a) => this._executeAction(a));
+      if (this._config.allowRemoteControl && !this._coordinator.isLeader) {
+        this._engine.setSyncState({ isPlaying: false });
+        this._broadcastState("PAUSE");
+      } else {
+        this._coordinator.claimLeadership({ action: "pause" }, (a) => this._executeAction(a));
+      }
     } else {
       this._driver.pause();
     }
   }
   seek(time) {
     if (this._config.singlePlayback) {
-      this._coordinator.claimLeadership({ action: "seek", seekTime: time }, (a) => this._executeAction(a));
+      if (this._config.allowRemoteControl && !this._coordinator.isLeader) {
+        this._engine.setSyncState({ currentTime: time });
+        this._broadcastState("STATE_UPDATE");
+      } else {
+        this._coordinator.claimLeadership({ action: "seek", seekTime: time }, (a) => this._executeAction(a));
+      }
     } else {
       this._driver.seek(time);
     }
@@ -1658,104 +1817,6 @@ var AudioInstance = class extends EventEmitter {
     this._engine.setSyncState(DEFAULT_PLAYER_STATE);
   }
 };
-
-// src/model/types/syncConfig.types.ts
-var SyncPresets = {
-  /**
-   * Each tab is completely independent
-   */
-  INDEPENDENT: {
-    syncPlay: false,
-    syncPause: false,
-    syncSeek: false,
-    syncTrackChange: false,
-    singlePlayback: false,
-    syncInterval: 0
-    // No periodic sync needed
-  },
-  /**
-   * All tabs play the same content in sync
-   */
-  SYNCHRONIZED: {
-    syncPlay: true,
-    syncPause: true,
-    syncSeek: true,
-    syncTrackChange: true,
-    singlePlayback: false,
-    syncInterval: 1e3
-  },
-  /**
-   * One tab plays, others control (like Spotify Connect)
-   */
-  REMOTE_CONTROL: {
-    syncPlay: true,
-    syncPause: true,
-    syncSeek: true,
-    syncTrackChange: true,
-    singlePlayback: true,
-    syncInterval: 1e3
-  },
-  /**
-   * Synced playback but independent tracks
-   */
-  SYNCED_PLAYBACK_INDEPENDENT_TRACKS: {
-    syncPlay: true,
-    syncPause: true,
-    syncSeek: false,
-    syncTrackChange: false,
-    singlePlayback: false,
-    syncInterval: 0
-  }
-};
-function validateSyncConfig(config) {
-  const warnings = [];
-  if (config.singlePlayback === true && config.syncPlay === false) {
-    warnings.push(
-      "\u26A0\uFE0F singlePlayback: true + syncPlay: false - Only leader plays, but play events are not synced. This may cause confusion."
-    );
-  }
-  if (config.singlePlayback === false && config.syncPlay === false && config.syncPause === false && config.syncSeek === false && config.syncTrackChange === false) {
-    warnings.push(
-      "\u26A0\uFE0F All tabs play but nothing is synced - Consider using singlePlayback: true or enabling some sync options."
-    );
-  }
-  if (config.syncTrackChange === true && config.syncPlay === false) {
-    warnings.push(
-      "\u26A0\uFE0F syncTrackChange: true + syncPlay: false - Tracks sync but play state does not. This may cause unexpected behavior."
-    );
-  }
-  if (config.singlePlayback === true && config.syncInterval === 0) {
-    warnings.push(
-      "\u{1F4A1} singlePlayback: true + syncInterval: 0 - Consider enabling periodic sync for better follower state tracking."
-    );
-  }
-  return {
-    valid: warnings.length === 0,
-    warnings
-  };
-}
-function describeSyncConfig(config) {
-  const features = [];
-  if (config.singlePlayback) {
-    features.push("\u{1F3B5} Only leader tab plays audio");
-  } else {
-    features.push("\u{1F50A} All tabs play audio simultaneously");
-  }
-  if (config.syncTrackChange) {
-    features.push("\u{1F3B5} Tracks sync across tabs");
-  } else {
-    features.push("\u{1F3B5} Each tab plays independent tracks");
-  }
-  if (config.syncPlay && config.syncPause) {
-    features.push("\u23EF\uFE0F Play/pause syncs");
-  }
-  if (config.syncSeek) {
-    features.push("\u23E9 Seek/time syncs");
-  } else {
-    features.push("\u23E9 Each tab can seek independently");
-  }
-  return features.join("\n");
-}
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG,

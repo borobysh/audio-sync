@@ -2,13 +2,9 @@ import { Playlist } from "./Playlist";
 import { Track, PlaylistConfig, PlaylistEventPayloads } from "../types/playlist.types";
 import { DEFAULT_PLAYLIST_CONFIG } from "../../config/playlist.config";
 import { EventEmitter } from "../EventEmitter";
+import { createLogger } from "../../shared/logger";
 
-const DEBUG = true;
-const log = (...args: any[]) => {
-    if (DEBUG) {
-        console.log('[PlaylistManager]', ...args);
-    }
-};
+const log = createLogger('PlaylistManager');
 
 /**
  * Callbacks for PlaylistManager to interact with AudioInstance

@@ -115,6 +115,17 @@ describe('SyncConfig Validation', () => {
             expect(SyncPresets.REMOTE_CONTROL.singlePlayback).toBe(true);
             expect(SyncPresets.REMOTE_CONTROL.syncPlay).toBe(true);
             expect(SyncPresets.REMOTE_CONTROL.syncTrackChange).toBe(true);
+            expect(SyncPresets.REMOTE_CONTROL.allowRemoteControl).toBe(true);
+        });
+
+        it('should have PLAY_PAUSE_SYNC preset', () => {
+            expect(SyncPresets.PLAY_PAUSE_SYNC).toBeDefined();
+            expect(SyncPresets.PLAY_PAUSE_SYNC.singlePlayback).toBe(false);
+            expect(SyncPresets.PLAY_PAUSE_SYNC.syncPlay).toBe(true);
+            expect(SyncPresets.PLAY_PAUSE_SYNC.syncPause).toBe(true);
+            expect(SyncPresets.PLAY_PAUSE_SYNC.syncSeek).toBe(false);
+            expect(SyncPresets.PLAY_PAUSE_SYNC.syncTrackChange).toBe(false);
+            expect(SyncPresets.PLAY_PAUSE_SYNC.syncInterval).toBe(0);
         });
 
         it('should have SYNCED_PLAYBACK_INDEPENDENT_TRACKS preset', () => {

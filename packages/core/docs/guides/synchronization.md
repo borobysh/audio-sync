@@ -294,6 +294,251 @@ const player = new AudioInstance('app', {
 });
 ```
 
+## Configuration Presets
+
+Audio Sync Core provides pre-configured presets for common use cases. Import them from `SyncPresets`:
+
+```typescript
+import { AudioInstance, SyncPresets } from '@borobysh/audio-sync-core';
+
+const player = new AudioInstance('app', SyncPresets.REMOTE_CONTROL);
+```
+
+### Available Presets
+
+#### 1. `SyncPresets.INDEPENDENT`
+
+**Use case:** Each tab operates completely independently, no synchronization.
+
+```typescript
+const player = new AudioInstance('app', SyncPresets.INDEPENDENT);
+```
+
+**Configuration:**
+- `syncPlay: false`
+- `syncPause: false`
+- `syncSeek: false`
+- `syncTrackChange: false`
+- `singlePlayback: false`
+- `syncInterval: 0`
+
+**Best for:** Multiple users or separate sessions on the same device.
+
+---
+
+#### 2. `SyncPresets.SYNCHRONIZED`
+
+**Use case:** All tabs play the same content in perfect sync.
+
+```typescript
+const player = new AudioInstance('app', SyncPresets.SYNCHRONIZED);
+```
+
+**Configuration:**
+- `syncPlay: true`
+- `syncPause: true`
+- `syncSeek: true`
+- `syncTrackChange: true`
+- `singlePlayback: false` (all tabs play audio)
+- `syncInterval: 1000`
+
+**Best for:** Consistent experience across all tabs, redundancy if one tab closes.
+
+---
+
+#### 3. `SyncPresets.REMOTE_CONTROL` 🎯
+
+**Use case:** One tab plays audio (leader), others can control it remotely (Spotify Connect style).
+
+```typescript
+const player = new AudioInstance('app', SyncPresets.REMOTE_CONTROL);
+```
+
+**Configuration:**
+- `syncPlay: true`
+- `syncPause: true`
+- `syncSeek: true`
+- `syncTrackChange: true`
+- `singlePlayback: true` (only leader plays audio)
+- `allowRemoteControl: true` (followers can control without becoming leaders)
+- `syncInterval: 1000`
+
+**How it works:**
+- Only the leader tab plays audio
+- Follower tabs can control playback (play, pause, seek, change tracks)
+- Followers don't automatically become leaders when controlling
+- If no leader exists, first follower action auto-claims leadership (configurable)
+- To manually become leader, call `player.becomeLeader()`
+
+**Key features:**
+- `allowRemoteControl: true` - Followers send commands without claiming leadership
+- `autoClaimLeadershipIfNone: true` - Auto-become leader if none exists (default)
+- Leader remains leader even when followers send commands
+
+**Example:**
+
+```typescript
+const player = new AudioInstance('app', SyncPresets.REMOTE_CONTROL);
+
+// On a follower tab
+player.play();  // Checks for leader: if exists → sends command, if not → becomes leader
+player.pause(); // Sends pause command to leader
+player.seek(30); // Sends seek command to leader
+
+// Manually claim leadership anytime
+player.becomeLeader(); // This tab now plays audio
+
+// Monitor leadership changes
+player.on('leaderChange', ({ isLeader }) => {
+  if (isLeader) {
+    console.log('This tab is now playing audio');
+  } else {
+    console.log('This tab is controlling remotely');
+  }
+});
+```
+
+**Typical workflow:**
+1. User opens Tab 1, plays music → Tab 1 becomes leader
+2. User opens Tab 2 → Tab 2 is follower
+3. User pauses from Tab 2 → Tab 1 (leader) pauses, Tab 1 stays leader
+4. User closes Tab 1 → No leader exists
+5. User plays from Tab 2 → Tab 2 auto-becomes leader (no manual action needed)
+
+**UI Integration:**
+
+```typescript
+// Add "Become Leader" button
+const becomeLeaderBtn = document.getElementById('become-leader');
+
+player.subscribe((state) => {
+  if (state.isLeader) {
+    becomeLeaderBtn.disabled = true;
+    becomeLeaderBtn.textContent = '👑 You are Leader';
+  } else {
+    becomeLeaderBtn.disabled = false;
+    becomeLeaderBtn.textContent = '👑 Become Leader';
+  }
+});
+
+becomeLeaderBtn.addEventListener('click', () => {
+  player.becomeLeader();
+});
+```
+
+**Best for:** Desktop plays audio, mobile/tablet controls. Multiple devices controlling a single speaker.
+
+---
+
+#### 4. `SyncPresets.PLAY_PAUSE_SYNC` 🎯
+
+**Use case:** Simple synchronization - only play/pause state syncs, each tab becomes leader when it plays/pauses.
+
+```typescript
+const player = new AudioInstance('app', SyncPresets.PLAY_PAUSE_SYNC);
+```
+
+**Configuration:**
+- `syncPlay: true`
+- `syncPause: true`
+- `syncSeek: false` (each tab can seek independently)
+- `syncTrackChange: false` (each tab can play different tracks)
+- `singlePlayback: false` (all tabs play audio)
+- `syncInterval: 0`
+
+**How it works:**
+- When you press play/pause in any tab, all tabs sync that state
+- Each tab automatically becomes leader when it presses play/pause
+- Seeking and track changes are independent per tab
+- No periodic sync, minimal overhead
+
+**Best for:** Independent playback with basic state synchronization.
+
+---
+
+#### 5. `SyncPresets.SYNCED_PLAYBACK_INDEPENDENT_TRACKS`
+
+**Use case:** Play/pause syncs, but each tab can play different tracks.
+
+```typescript
+const player = new AudioInstance('app', SyncPresets.SYNCED_PLAYBACK_INDEPENDENT_TRACKS);
+```
+
+**Configuration:**
+- `syncPlay: true`
+- `syncPause: true`
+- `syncSeek: false`
+- `syncTrackChange: false`
+- `singlePlayback: false`
+- `syncInterval: 0`
+
+**Best for:** Multiple tabs playing different songs, but playback state syncs.
+
+---
+
+### Custom Configurations
+
+You can extend presets with custom options:
+
+```typescript
+const player = new AudioInstance('app', {
+  ...SyncPresets.REMOTE_CONTROL,
+  syncInterval: 500, // Override: more frequent updates
+  playlist: {
+    autoAdvance: true,
+    defaultRepeatMode: 'all'
+  }
+});
+```
+
+### Manual Leadership Control
+
+The `allowRemoteControl` option enables a special mode where followers can send commands without claiming leadership:
+
+```typescript
+const player = new AudioInstance('app', {
+  singlePlayback: true,
+  allowRemoteControl: true,
+  autoClaimLeadershipIfNone: true,  // Auto-become leader if none exists
+  syncPlay: true,
+  syncPause: true,
+  syncSeek: true,
+  syncTrackChange: true
+});
+
+// Follower tab can control without becoming leader
+if (!player.isLeader) {
+  player.play();  // Checks for leader: sends command or auto-claims leadership
+  player.pause(); // Leader receives command and pauses
+  
+  // When ready to become leader (to play audio locally):
+  player.becomeLeader();
+}
+```
+
+**How leader detection works:**
+1. When follower sends command, library checks for active leader
+2. Checks recent messages (within last 3 seconds) from leader
+3. If no recent messages, sends `SYNC_REQUEST` and waits 200ms
+4. If leader responds → sends remote command
+5. If no response → auto-becomes leader (if `autoClaimLeadershipIfNone: true`)
+
+**Disable auto-claim:**
+
+```typescript
+const player = new AudioInstance('app', {
+  ...SyncPresets.REMOTE_CONTROL,
+  autoClaimLeadershipIfNone: false  // Require manual becomeLeader()
+});
+
+// Now play() will always send command (even if no leader exists)
+player.play();  // Command sent, but no one will execute it
+
+// Must manually become leader
+player.becomeLeader();
+player.play();  // Now plays locally
+```
+
 ## Debugging Synchronization
 
 ### Log Sync Events
