@@ -1,4 +1,5 @@
 import { SyncCoreState } from "./syncCore.types";
+import { PlaylistEventPayloads } from "./playlist.types";
 
 /**
  * Event types emitted by AudioInstance
@@ -14,7 +15,14 @@ export type AudioInstanceEventType =
     | 'trackChange'      // Track changed
     | 'volumeChange'     // Volume changed
     | 'leaderChange'     // Leadership changed
-    | 'error';           // Error occurred
+    | 'error'            // Error occurred
+    | 'buffering'        // Audio buffering state
+    | 'bufferProgress'   // Buffer progress update
+    | 'playlistTrackChanged'      // Playlist track changed
+    | 'playlistQueueUpdated'      // Playlist queue updated
+    | 'playlistEnded'             // Playlist ended
+    | 'playlistRepeatModeChanged' // Playlist repeat mode changed
+    | 'playlistShuffleChanged';   // Playlist shuffle changed
 
 
 export type AudioInstanceEventData = {
@@ -29,4 +37,11 @@ export type AudioInstanceEventData = {
     volumeChange: { volume: number; muted: boolean };
     leaderChange: { isLeader: boolean };
     error: { message: string; code: string | null };
+    buffering: { isBuffering: boolean };
+    bufferProgress: { bufferedSeconds: number };
+    playlistTrackChanged: PlaylistEventPayloads['trackChanged'];
+    playlistQueueUpdated: PlaylistEventPayloads['queueUpdated'];
+    playlistEnded: PlaylistEventPayloads['playlistEnded'];
+    playlistRepeatModeChanged: PlaylistEventPayloads['repeatModeChanged'];
+    playlistShuffleChanged: PlaylistEventPayloads['shuffleChanged'];
 };

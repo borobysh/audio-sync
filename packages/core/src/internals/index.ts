@@ -9,6 +9,7 @@ export { Driver } from "../model/Driver";
 export { Engine } from "../model/Engine";
 export { EventEmitter } from "../model/EventEmitter";
 export { SyncCoordinator } from "../model/sync/SyncCoordinator";
+export { PlaybackSyncHandler } from "../model/sync/PlaybackSyncHandler";
 export { LatencyCompensator } from "../model/sync/LatencyCompensator";
 
 // Internal types

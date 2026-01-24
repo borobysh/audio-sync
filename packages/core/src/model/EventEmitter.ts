@@ -1,9 +1,12 @@
 import { SyncCoreState } from "./types/syncCore.types";
 import { AudioInstanceEventData, AudioInstanceEventType } from "./types/eventEmitter.types";
 
-export class EventEmitter {
+/**
+ * Generic EventEmitter for type-safe event handling
+ */
+export class EventEmitter<TEventPayloads = AudioInstanceEventData> {
     private _stateSubscribers = new Set<(state: SyncCoreState) => void>();
-    private _eventSubscribers = new Map<AudioInstanceEventType, Set<Function>>();
+    private _eventSubscribers = new Map<keyof TEventPayloads, Set<Function>>();
 
     /**
      * Subscribe to all state changes (legacy API, for backwards compatibility)
@@ -16,9 +19,9 @@ export class EventEmitter {
     /**
      * Subscribe to a specific event type
      */
-    public on<T extends AudioInstanceEventType>(
+    public on<T extends keyof TEventPayloads>(
         event: T,
-        callback: (data: AudioInstanceEventData[T]) => void
+        callback: (data: TEventPayloads[T]) => void
     ): () => void {
         if (!this._eventSubscribers.has(event)) {
             this._eventSubscribers.set(event, new Set());
@@ -30,9 +33,9 @@ export class EventEmitter {
     /**
      * Unsubscribe from a specific event type
      */
-    public off<T extends AudioInstanceEventType>(
+    public off<T extends keyof TEventPayloads>(
         event: T,
-        callback: (data: AudioInstanceEventData[T]) => void
+        callback: (data: TEventPayloads[T]) => void
     ): void {
         this._eventSubscribers.get(event)?.delete(callback);
     }
@@ -42,15 +45,18 @@ export class EventEmitter {
      */
     protected emit(state: SyncCoreState) {
         this._stateSubscribers.forEach((cb) => cb(state));
-        this._emitEvent('stateChange', state);
+        // Only emit stateChange if it exists in the event payloads
+        if ('stateChange' in ({} as TEventPayloads)) {
+            this._emitEvent('stateChange' as keyof TEventPayloads, state as any);
+        }
     }
 
     /**
      * Emit a specific event
      */
-    protected _emitEvent<T extends AudioInstanceEventType>(
+    protected _emitEvent<T extends keyof TEventPayloads>(
         event: T,
-        data: AudioInstanceEventData[T]
+        data: TEventPayloads[T]
     ) {
         this._eventSubscribers.get(event)?.forEach((cb) => cb(data));
     }

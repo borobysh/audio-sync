@@ -1,16 +1,18 @@
 import { Engine } from './Engine';
 import { Driver } from './Driver';
 import { EventEmitter } from "./EventEmitter";
-import { AudioState } from "./types/engine.types";
 import { AudioEvent, SyncConfig, SyncCoreState } from "./types/syncCore.types";
 import { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG } from "../config/sync.config";
 import { DEFAULT_PLAYER_STATE } from "../config/engine.config";
-import { LatencyCompensator } from "./sync/LatencyCompensator";
 import { PendingAction, SyncCoordinator } from "./sync/SyncCoordinator";
+import { PlaybackSyncHandler } from "./sync/PlaybackSyncHandler";
 import { PlaylistManager } from "./playlist/PlaylistManager";
 import { PlaylistConfig } from "./types/playlist.types";
+import { AudioInstanceEventData } from "./types/eventEmitter.types";
+import { describeSyncConfig, validateSyncConfig } from "./types/syncConfig.types";
 
 const DEBUG = true;
+const AUTHOR_LIB_TAG = '[borobysh/audio-sync]'
 const log = (instanceId: string, ...args: any[]) => {
     if (DEBUG) {
         console.log(`[Sync:${instanceId.slice(0, 4)}]`, ...args);
@@ -28,14 +30,15 @@ export interface AudioInstanceConfig extends SyncConfig {
  * AudioInstance - The main entry point of the library.
  * Now acts as a manager coordinating the engine, driver, synchronization, and playlist.
  */
-export class AudioInstance extends EventEmitter {
+export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
     private readonly _engine: Engine;
     private readonly _driver: Driver;
     private readonly _coordinator: SyncCoordinator;
+    private readonly _playbackSyncHandler: PlaybackSyncHandler;
     private readonly _playlistManager: PlaylistManager | null;
     private readonly _config: Required<SyncConfig>;
     private readonly _instanceId: string;
-    
+
     private _syncIntervalId: ReturnType<typeof setInterval> | null = null;
 
     constructor(channelName: string = 'audio_sync_v1', config: AudioInstanceConfig = {}) {
@@ -43,9 +46,19 @@ export class AudioInstance extends EventEmitter {
         this._instanceId = Math.random().toString(36).substring(2, 11);
         this._config = { ...AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, ...config };
 
+        this._validateConfig()
+
         this._engine = new Engine();
         this._driver = new Driver(this._engine);
-        
+
+        // Initialize playback sync handler
+        this._playbackSyncHandler = new PlaybackSyncHandler(
+            this._instanceId,
+            this._config,
+            this._driver,
+            this._engine
+        );
+
         this._coordinator = new SyncCoordinator(
             this._instanceId,
             channelName,
@@ -55,7 +68,7 @@ export class AudioInstance extends EventEmitter {
                 onLeadershipChange: (isLeader) => {
                     log(this._instanceId, isLeader ? '👑 Became leader' : '👑➡️ Giving up leadership');
                     this._emitEvent('leaderChange', { isLeader });
-                    
+
                     // If singlePlayback is enabled and we lost leadership while playing, stop audio
                     if (!isLeader && this._config.singlePlayback && this._engine.state.isPlaying) {
                         log(this._instanceId, `🔇 Stopping real playback (lost leadership)`);
@@ -81,7 +94,7 @@ export class AudioInstance extends EventEmitter {
 
         this._initCoreListeners();
         this._initPeriodicSync();
-        
+
         if (this._playlistManager) {
             this._initPlaylistListeners();
         }
@@ -92,29 +105,49 @@ export class AudioInstance extends EventEmitter {
 
     // --- Accessors ---
 
-    public get engine(): Engine { return this._engine; }
-    public get driver(): Driver { return this._driver; }
-    public get playlist(): PlaylistManager | null { return this._playlistManager; }
-    public get instanceId(): string { return this._instanceId; }
+    public get engine(): Engine {
+        return this._engine;
+    }
+
+    public get driver(): Driver {
+        return this._driver;
+    }
+
+    public get playlist(): PlaylistManager | null {
+        return this._playlistManager;
+    }
+
+    public get instanceId(): string {
+        return this._instanceId;
+    }
+
     public get state(): SyncCoreState {
         return {
             ...this._engine.state,
             isLeader: this._coordinator.isLeader
         };
     }
+
     public get isLeader(): boolean {
         return this._coordinator.isLeader;
     }
 
     // --- Private Methods ---
 
+    // Delegate to PlaybackSyncHandler
     private _isSyncAllowed(type: AudioEvent['type']): boolean {
-        switch (type) {
-            case 'PLAY': return this._config.syncPlay;
-            case 'PAUSE': return this._config.syncPause;
-            case 'STATE_UPDATE': return this._config.syncSeek || this._config.syncTrackChange;
-            default: return true;
+        return this._playbackSyncHandler.isSyncAllowed(type);
+    }
+
+    private _validateConfig() {
+        const validation = validateSyncConfig(this._config);
+        if (validation.warnings.length > 0) {
+            console.warn(`${AUTHOR_LIB_TAG} Configuration warnings:`);
+            validation.warnings.forEach(w => console.warn(w));
         }
+
+        console.log(`${AUTHOR_LIB_TAG} Current configuration:`);
+        console.log(describeSyncConfig(this._config));
     }
 
     private _initCoreListeners() {
@@ -138,10 +171,19 @@ export class AudioInstance extends EventEmitter {
             this._broadcastState(type);
         };
 
-        this._engine.on('play', () => { broadcastLocalAction('PLAY'); this._emitEvent('play', { src: this._engine.state.currentSrc }); });
-        this._engine.on('pause', () => { broadcastLocalAction('PAUSE'); this._emitEvent('pause', undefined); });
+        this._engine.on('play', () => {
+            broadcastLocalAction('PLAY');
+            this._emitEvent('play', { src: this._engine.state.currentSrc });
+        });
+        this._engine.on('pause', () => {
+            broadcastLocalAction('PAUSE');
+            this._emitEvent('pause', undefined);
+        });
         this._engine.on('stop', () => this._emitEvent('stop', undefined));
-        this._engine.on('seek', () => { broadcastLocalAction('STATE_UPDATE'); this._emitEvent('seek', { time: this._engine.state.currentTime }); });
+        this._engine.on('seek', () => {
+            broadcastLocalAction('STATE_UPDATE');
+            this._emitEvent('seek', { time: this._engine.state.currentTime });
+        });
         this._engine.on('ended', () => {
             this._emitEvent('ended', undefined);
             // Auto-advance to next track if playlist is enabled
@@ -195,102 +237,34 @@ export class AudioInstance extends EventEmitter {
         }
     }
 
+    /**
+     * Route remote events to appropriate handlers
+     */
     private _handleRemoteEvent(type: AudioEvent['type'], payload: Partial<SyncCoreState>, timestamp: number) {
-        // Handle playlist events
+        // Route playlist events to PlaylistManager
         if (this._playlistManager && type.startsWith('PLAYLIST_')) {
             this._playlistManager.handleRemoteAction(type, payload);
             return;
         }
 
-        if (!this._isSyncAllowed(type)) return;
-
-        const latency = (Date.now() - timestamp) / 1000;
-
-        switch (type) {
-            case 'PLAY':
-                const adjustedTime = LatencyCompensator.calculateAdjustedTime(payload.currentTime, payload.isPlaying, latency, 0);
-                if (this._config.singlePlayback) {
-                    this._engine.setSyncState({
-                        isPlaying: false,
-                        currentSrc: this._config.syncTrackChange ? (payload.currentSrc || null) : this._engine.state.currentSrc,
-                        duration: this._config.syncTrackChange ? (payload.duration || 0) : this._engine.state.duration,
-                        currentTime: this._config.syncSeek ? (isFinite(adjustedTime) ? adjustedTime : 0) : this._engine.state.currentTime
-                    });
-                } else {
-                    const isSourceChanging = payload.currentSrc && payload.currentSrc !== this._engine.state.currentSrc;
-                    if (isSourceChanging) {
-                        this._driver.play(payload.currentSrc || undefined);
-                        if (isFinite(adjustedTime) && adjustedTime >= 0) this._driver.seekWhenReady(adjustedTime);
-                    } else {
-                        this._syncTime(payload, timestamp);
-                        this._driver.play(payload.currentSrc || undefined);
-                    }
-                }
-                break;
-
-            case 'PAUSE':
-                if (this._config.singlePlayback) {
-                    if (this._config.syncPause) this._engine.setSyncState({ isPlaying: false });
-                } else {
-                    this._driver.pause();
-                }
-                break;
-
-            case 'STATE_UPDATE':
-                const isTrackChanging = payload.currentSrc !== this._engine.state.currentSrc;
-                if ((isTrackChanging && !this._config.syncTrackChange) || (!isTrackChanging && !this._config.syncSeek)) return;
-
-                const stateAdjustedTime = LatencyCompensator.calculateAdjustedTime(
-                    payload.currentTime,
-                    payload.isPlaying,
-                    latency,
-                    this._engine.state.currentTime
-                );
-
-                if (this._config.singlePlayback) {
-                    this._engine.setSyncState({
-                        isPlaying: payload.isPlaying ?? this._engine.state.isPlaying,
-                        currentSrc: payload.currentSrc ?? this._engine.state.currentSrc,
-                        currentTime: isFinite(stateAdjustedTime) ? stateAdjustedTime : this._engine.state.currentTime,
-                        duration: payload.duration ?? this._engine.state.duration
-                    });
-                } else {
-                    this._syncTime(payload, timestamp);
-                    if (payload.isPlaying && !this._engine.state.isPlaying) {
-                        this._driver.play(payload.currentSrc || undefined);
-                    } else if (!payload.isPlaying && this._engine.state.isPlaying) {
-                        this._driver.pause();
-                    } else if (isTrackChanging && payload.isPlaying) {
-                        this._driver.play(payload.currentSrc || undefined);
-                    }
-                }
-                break;
-        }
-    }
-
-    private _syncTime(payload: Partial<AudioState>, sentAt: number) {
-        if (typeof payload.currentTime !== 'number' || !isFinite(payload.currentTime)) return;
-
-        const latency = (Date.now() - sentAt) / 1000;
-        const adjustedTime = LatencyCompensator.calculateAdjustedTime(payload.currentTime, payload.isPlaying, latency);
-
-        if (!isFinite(adjustedTime) || adjustedTime < 0) return;
-
-        const diff = Math.abs(this._engine.state.currentTime - adjustedTime);
-
-        // 300ms threshold prevents micro-stutters during playback
-        if (diff > 0.3) {
-            log(this._instanceId, `⏱️ Seeking to ${adjustedTime.toFixed(2)} (diff=${diff.toFixed(2)})`);
-            this._driver.seek(adjustedTime);
-        }
+        // Route playback events to PlaybackSyncHandler
+        this._playbackSyncHandler.handleRemoteEvent(type, payload, timestamp);
     }
 
     private _executeAction(action: PendingAction) {
         switch (action.action) {
-            case 'play': this._driver.play(action.src); break;
-            case 'pause': this._driver.pause(); break;
-            case 'seek': if (typeof action.seekTime === 'number') this._driver.seek(action.seekTime); break;
-            case 'stop': this._driver.stop(); break;
+            case 'play':
+                this._driver.play(action.src);
+                break;
+            case 'pause':
+                this._driver.pause();
+                break;
+            case 'seek':
+                if (typeof action.seekTime === 'number') this._driver.seek(action.seekTime);
+                break;
+            case 'stop':
+                this._driver.stop();
+                break;
         }
     }
 
@@ -332,9 +306,17 @@ export class AudioInstance extends EventEmitter {
         }
     }
 
-    public mute() { this._driver.mute(); }
-    public unmute() { this._driver.unmute(); }
-    public toggleMute() { this._driver.toggleMute(); }
+    public mute() {
+        this._driver.mute();
+    }
+
+    public unmute() {
+        this._driver.unmute();
+    }
+
+    public toggleMute() {
+        this._driver.toggleMute();
+    }
 
     public destroy() {
         this._stopPeriodicSync();

@@ -91,6 +91,12 @@ export class Playlist extends EventEmitter<PlaylistEventPayloads> {
      * Add a single track to the playlist
      */
     public add(track: Track, position?: number): void {
+        // Check for duplicates by ID
+        if (this._tracks.some(t => t.id === track.id)) {
+            log(`⚠️ Track "${track.title || track.src}" (id: ${track.id}) already exists, skipping`);
+            return;
+        }
+        
         const actualPosition = position ?? this._tracks.length;
         this._tracks.splice(actualPosition, 0, track);
         this._rebuildQueue();
@@ -102,10 +108,24 @@ export class Playlist extends EventEmitter<PlaylistEventPayloads> {
      * Add multiple tracks to the playlist
      */
     public addMany(tracks: Track[], position?: number): void {
+        // Filter out duplicates by ID
+        const newTracks = tracks.filter(track => {
+            const exists = this._tracks.some(t => t.id === track.id);
+            if (exists) {
+                log(`⚠️ Track "${track.title || track.src}" (id: ${track.id}) already exists, skipping`);
+            }
+            return !exists;
+        });
+        
+        if (newTracks.length === 0) {
+            log(`⚠️ All tracks already exist, nothing to add`);
+            return;
+        }
+        
         const actualPosition = position ?? this._tracks.length;
-        this._tracks.splice(actualPosition, 0, ...tracks);
+        this._tracks.splice(actualPosition, 0, ...newTracks);
         this._rebuildQueue();
-        log(`➕ Added ${tracks.length} tracks at position ${actualPosition}`);
+        log(`➕ Added ${newTracks.length} tracks at position ${actualPosition}`);
         this._emitEvent('queueUpdated', { tracks: this.tracks, queue: this.queue });
     }
 

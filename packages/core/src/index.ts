@@ -18,6 +18,20 @@ export type {
     PlaylistEventPayloads 
 } from "./model/types/playlist.types";
 
+// Validated sync config types & presets
+export type {
+    ValidatedSyncConfig,
+    IndependentTabsConfig,
+    SynchronizedTabsConfig,
+    RemoteControlConfig,
+    CustomSyncConfig
+} from "./model/types/syncConfig.types";
+export { 
+    SyncPresets,
+    validateSyncConfig,
+    describeSyncConfig 
+} from "./model/types/syncConfig.types";
+
 // Public config
 export { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG } from "./config/sync.config";
 export { DEFAULT_PLAYLIST_CONFIG } from "./config/playlist.config";

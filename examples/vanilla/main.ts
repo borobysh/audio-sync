@@ -1,34 +1,80 @@
-import { AudioInstance, Track } from "../../packages/core/src/index";
+import { AudioInstance, SyncPresets, Track } from "../../packages/core/src/index";
 
 // Sample tracks
 const tracks: Track[] = [
-    { id: '1', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3', title: 'Sound Helix Song 1', artist: 'T. Schürger' },
-    { id: '2', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3', title: 'Sound Helix Song 2', artist: 'T. Schürger' },
-    { id: '3', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3', title: 'Sound Helix Song 3', artist: 'T. Schürger' },
-    { id: '4', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3', title: 'Sound Helix Song 4', artist: 'T. Schürger' },
-    { id: '5', src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3', title: 'Sound Helix Song 5', artist: 'T. Schürger' },
+    {
+        id: '1',
+        src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3',
+        title: 'Sound Helix Song 1',
+        artist: 'T. Schürger'
+    },
+    {
+        id: '2',
+        src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3',
+        title: 'Sound Helix Song 2',
+        artist: 'T. Schürger'
+    },
+    {
+        id: '3',
+        src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3',
+        title: 'Sound Helix Song 3',
+        artist: 'T. Schürger'
+    },
+    {
+        id: '4',
+        src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3',
+        title: 'Sound Helix Song 4',
+        artist: 'T. Schürger'
+    },
+    {
+        id: '5',
+        src: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-5.mp3',
+        title: 'Sound Helix Song 5',
+        artist: 'T. Schürger'
+    },
 ];
 
-// Create player with playlist support
-const player = new AudioInstance('audio_sync_unified', {
-    syncSeek: false,
-    syncTrackChange: false,
-    singlePlayback: true,
+// ═══════════════════════════════════════════════════════════════
+// Configuration - Try different presets to see different behaviors!
+// ═══════════════════════════════════════════════════════════════
+// 
+// 🎯 Available presets:
+// 
+// SyncPresets.INDEPENDENT
+//   → Each tab completely independent (no sync)
+//   → Use case: Different users/sessions
+// 
+// SyncPresets.SYNCHRONIZED
+//   → All tabs play same content in perfect sync
+//   → Use case: Same user, consistent experience
+// 
+// SyncPresets.REMOTE_CONTROL
+//   → One tab plays, others control (like Spotify)
+//   → Use case: Desktop plays, phone controls
+// 
+// SyncPresets.SYNCED_PLAYBACK_INDEPENDENT_TRACKS ✅ CURRENT
+//   → Play/pause syncs, but each tab has its own track
+//   → Use case: Each tab plays different song but playback state syncs
+// 
+// ═══════════════════════════════════════════════════════════════
+
+const config = {
+    ...SyncPresets.REMOTE_CONTROL,
+
     playlist: {
         autoAdvance: true,
-        defaultRepeatMode: 'all',
-        syncPlaylist: true
+        defaultRepeatMode: 'all' as const,
+        syncPlaylist: false
     }
-});
+};
 
-// Initialize playlist
+const player = new AudioInstance('audio_sync_unified', config);
 const playlist = player.playlist;
 
 if (!playlist) {
     throw new Error('Playlist not available');
 }
 
-// Add tracks to playlist
 playlist.addMany(tracks);
 
 // --- DOM Elements ---
@@ -83,10 +129,12 @@ const formatTime = (seconds: number): string => {
 
 // Render playlist
 const renderPlaylist = () => {
-    if (!playlistEl || !playlist) return;
+    if (!playlistEl || !playlist) {
+        return;
+    }
 
     const currentIndex = playlist.state.currentIndex;
-    
+
     playlistEl.innerHTML = playlist.state.queue.map((track, index) => {
         const trackTitle = track.title ?? 'Unknown Track';
         const trackArtist = track.artist ?? 'Unknown Artist';
@@ -112,10 +160,12 @@ const renderPlaylist = () => {
 
 // Update now playing
 const updateNowPlaying = () => {
-    if (!playlist) return;
-    
+    if (!playlist) {
+        return;
+    }
+
     const current = playlist.currentTrack;
-    
+
     if (currentTitle && currentArtist) {
         if (current) {
             currentTitle.textContent = current.title ?? 'Unknown Track';
@@ -130,12 +180,12 @@ const updateNowPlaying = () => {
 // Update playlist control buttons
 const updatePlaylistControls = () => {
     if (!playlist) return;
-    
+
     if (shuffleBtn) {
         shuffleBtn.classList.toggle('active', playlist.state.shuffleEnabled);
         shuffleBtn.textContent = playlist.state.shuffleEnabled ? '🔀 Shuffle ON' : '🔀 Shuffle';
     }
-    
+
     if (repeatBtn) {
         const repeatText: Record<string, string> = {
             'none': '🔁 Repeat',
@@ -151,7 +201,7 @@ const updateUI = () => {
     if (isDestroyed) {
         return;
     }
-    
+
     const state = player.state;
 
     timeCurrent.innerText = formatTime(state.currentTime);
@@ -200,8 +250,11 @@ updateUI();
 
 playBtn.addEventListener('click', () => {
     const state = player.state;
+
     if (!state.currentSrc && playlist) {
         playlist.playTrack(0);
+    } else if (state.currentSrc) {
+        player.play();
     } else {
         player.play();
     }
@@ -286,22 +339,22 @@ destroyBtn.addEventListener('click', () => {
         console.log('[Playground] Instance already destroyed');
         return;
     }
-    
+
     player.destroy();
     isDestroyed = true;
-    
+
     instanceStatus.innerText = 'Instance destroyed';
     instanceStatus.style.color = '#ff5252';
     destroyBtn.disabled = true;
     destroyBtn.style.opacity = '0.5';
-    
+
     [playBtn, pauseBtn, stopBtn, muteBtn, unmuteBtn, seekBtn].forEach(btn => {
         btn.disabled = true;
         btn.style.opacity = '0.5';
     });
     volumeSlider.disabled = true;
     seekInput.disabled = true;
-    
+
     console.log('[Playground] Instance destroyed');
 });
 
