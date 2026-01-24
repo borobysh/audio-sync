@@ -8,7 +8,7 @@ import { PlaybackSyncHandler } from "./sync/PlaybackSyncHandler";
 import { PlaylistManager } from "./playlist/PlaylistManager";
 import { PlaylistConfig } from "./types/playlist.types";
 import { AudioInstanceEventData } from "./types/eventEmitter.types";
-import { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, describeSyncConfig, validateSyncConfig } from "./types/syncConfig.types";
+import { AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG, describeSyncConfig, validateSyncConfig } from "../config/syncConfig";
 import { createLogger } from "../shared/logger";
 
 const AUTHOR_LIB_TAG = '[borobysh/audio-sync]';
@@ -18,6 +18,16 @@ const AUTHOR_LIB_TAG = '[borobysh/audio-sync]';
  */
 export interface AudioInstanceConfig extends SyncConfig {
     playlist?: Partial<PlaylistConfig>;
+    /**
+     * Custom driver implementation for dependency injection
+     * Allows you to provide your own audio implementation (Web Audio API, Howler.js, etc.)
+     */
+    driver?: Driver;
+    /**
+     * Custom audio element for dependency injection
+     * If driver is not provided, this will be used to create a default Driver
+     */
+    audioElement?: any;
 }
 
 /**
@@ -45,7 +55,16 @@ export class AudioInstance extends EventEmitter<AudioInstanceEventData> {
         this._validateConfig()
 
         this._engine = new Engine();
-        this._driver = new Driver(this._engine);
+        
+        // Allow dependency injection of custom Driver or AudioElement
+        if (config.driver) {
+            this._driver = config.driver;
+        } else if (config.audioElement) {
+            this._driver = new Driver(this._engine, config.audioElement);
+        } else {
+            // Default: create Driver with new Audio()
+            this._driver = new Driver(this._engine);
+        }
 
         // Initialize playback sync handler
         this._playbackSyncHandler = new PlaybackSyncHandler(

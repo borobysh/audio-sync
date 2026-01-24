@@ -2,6 +2,10 @@
 export { AudioInstance } from "./model/AudioInstance";
 export type { AudioInstanceConfig } from "./model/AudioInstance";
 
+// Driver API
+export { Driver } from "./model/Driver";
+export { AbstractDriver } from "./model/drivers/AbstractDriver";
+
 // Playlist API
 export { Playlist } from "./model/playlist/Playlist";
 export { PlaylistManager } from "./model/playlist/PlaylistManager";
@@ -18,7 +22,7 @@ export type {
     PlaylistEventPayloads 
 } from "./model/types/playlist.types";
 
-// Validated sync config types & presets
+// Validated sync config types
 export type {
     ValidatedSyncConfig,
     IndependentTabsConfig,
@@ -26,12 +30,14 @@ export type {
     RemoteControlConfig,
     CustomSyncConfig
 } from "./model/types/syncConfig.types";
+
+// Sync config presets and utilities
 export { 
     SyncPresets,
     AUDIO_INSTANCE_DEFAULT_SYNC_CONFIG,
     validateSyncConfig,
     describeSyncConfig 
-} from "./model/types/syncConfig.types";
+} from "./config/syncConfig";
 
 // Public config
 export { DEFAULT_PLAYLIST_CONFIG } from "./config/playlist.config";

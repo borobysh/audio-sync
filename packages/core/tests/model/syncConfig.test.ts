@@ -3,7 +3,7 @@ import {
     validateSyncConfig,
     describeSyncConfig,
     SyncPresets
-} from '../../src/model/types/syncConfig.types';
+} from '../../src/config/syncConfig';
 
 describe('SyncConfig Validation', () => {
     describe('validateSyncConfig', () => {

@@ -2,16 +2,28 @@ import { AudioElementContract, AudioReadyState } from "./types/driver.types";
 import { AudioEngineContract, AudioState, EngineEventType } from "./types/engine.types";
 import { Engine } from "./Engine";
 import { createLogger } from "../shared/logger";
+import { AbstractDriver } from "./drivers/AbstractDriver";
 
 const logDriver = createLogger('Driver');
 
-export class Driver {
+/**
+ * Default Driver implementation for browser environment (HTMLAudioElement)
+ * 
+ * This driver is specifically designed for HTMLAudioElement and uses:
+ * - addEventListener for advanced events (buffering, loading, etc.)
+ * - buffered API for tracking buffer progress
+ * 
+ * For custom implementations (Web Audio API, Howler.js, React Native, etc.):
+ * - Extend AbstractDriver
+ * - Implement all required methods
+ * - Pass your custom driver to AudioInstance config
+ */
+export class Driver extends AbstractDriver {
     private audio: AudioElementContract;
-    private engine: AudioEngineContract;
     private _isSilentOperation: boolean = false;
 
     constructor(engine?: AudioEngineContract, audioElement?: AudioElementContract) {
-        this.engine = engine || new Engine();
+        super(engine || new Engine());
         this.audio = audioElement || (new Audio() as AudioElementContract);
 
         this._initEngineListeners();
@@ -169,59 +181,60 @@ export class Driver {
             (this.engine as any).emitEnded?.();
         };
 
-        // Buffering events
-        this.audio.addEventListener('waiting', () => {
-            logDriver('🔄 Audio waiting (buffering started)');
-            (this.engine as any).setBuffering?.(true);
-        });
+        if (this.audio.addEventListener) {
+            this.audio.addEventListener('waiting', () => {
+                logDriver('🔄 Audio waiting (buffering started)');
+                (this.engine as any).setBuffering?.(true);
+            });
 
-        this.audio.addEventListener('canplay', () => {
-            logDriver('✅ Audio canplay (buffering ended)');
-            (this.engine as any).setBuffering?.(false);
-        });
+            this.audio.addEventListener('canplay', () => {
+                logDriver('✅ Audio canplay (buffering ended)');
+                (this.engine as any).setBuffering?.(false);
+            });
 
-        this.audio.addEventListener('canplaythrough', () => {
-            logDriver('✅ Audio canplaythrough (fully buffered)');
-            (this.engine as any).setBuffering?.(false);
-        });
+            this.audio.addEventListener('canplaythrough', () => {
+                logDriver('✅ Audio canplaythrough (fully buffered)');
+                (this.engine as any).setBuffering?.(false);
+            });
 
-        this.audio.addEventListener('progress', () => {
-            // Calculate how many seconds are buffered from current position
-            if (this.audio.buffered && this.audio.buffered.length > 0) {
-                try {
-                    const currentTime = this.audio.currentTime;
-                    let bufferedSeconds = 0;
+            this.audio.addEventListener('progress', () => {
+                // Calculate how many seconds are buffered from current position
+                if (this.audio.buffered && this.audio.buffered.length > 0) {
+                    try {
+                        const currentTime = this.audio.currentTime;
+                        let bufferedSeconds = 0;
 
-                    // Find the buffered range that contains current time
-                    for (let i = 0; i < this.audio.buffered.length; i++) {
-                        const start = this.audio.buffered.start(i);
-                        const end = this.audio.buffered.end(i);
+                        // Find the buffered range that contains current time
+                        for (let i = 0; i < this.audio.buffered.length; i++) {
+                            const start = this.audio.buffered.start(i);
+                            const end = this.audio.buffered.end(i);
 
-                        if (currentTime >= start && currentTime <= end) {
-                            bufferedSeconds = end - currentTime;
-                            break;
+                            if (currentTime >= start && currentTime <= end) {
+                                bufferedSeconds = end - currentTime;
+                                break;
+                            }
                         }
+
+                        (this.engine as any).setBufferProgress?.(bufferedSeconds);
+                    } catch (err) {
+                        // Ignore errors (can happen during source changes)
                     }
-
-                    (this.engine as any).setBufferProgress?.(bufferedSeconds);
-                } catch (err) {
-                    // Ignore errors (can happen during source changes)
                 }
-            }
-        });
+            });
 
-        this.audio.addEventListener('loadstart', () => {
-            logDriver('📥 Audio loadstart (starting to load)');
-            (this.engine as any).setBuffering?.(true);
-        });
+            this.audio.addEventListener('loadstart', () => {
+                logDriver('📥 Audio loadstart (starting to load)');
+                (this.engine as any).setBuffering?.(true);
+            });
 
-        this.audio.addEventListener('loadedmetadata', () => {
-            logDriver('📊 Audio loadedmetadata');
-        });
+            this.audio.addEventListener('loadedmetadata', () => {
+                logDriver('📊 Audio loadedmetadata');
+            });
 
-        this.audio.addEventListener('loadeddata', () => {
-            logDriver('📦 Audio loadeddata');
-        });
+            this.audio.addEventListener('loadeddata', () => {
+                logDriver('📦 Audio loadeddata');
+            });
+        }
     }
 
     public on(event: EngineEventType, callback: Function) {
