@@ -150,6 +150,15 @@ export class PlaylistManager extends EventEmitter<PlaylistEventPayloads> {
      * Play next track
      */
     public next(): boolean {
+        const isAllowRemoteControlEnabled = this._callbacks.isAllowRemoteControlEnabled?.() || false;
+        if (isAllowRemoteControlEnabled) {
+            const isTrackChangeAllowed = this._callbacks.isTrackChangeRemoteControlAllowed?.() ?? true;
+            if (!isTrackChangeAllowed) {
+                log('⏹️ Track change blocked: remoteSync.trackChange is false');
+                return false;
+            }
+        }
+
         const nextTrack = this._playlist.next();
         if (nextTrack) {
             this._callbacks.onPlayTrack(nextTrack.src);
@@ -165,6 +174,15 @@ export class PlaylistManager extends EventEmitter<PlaylistEventPayloads> {
      * Play previous track
      */
     public prev(): boolean {
+        const isAllowRemoteControlEnabled = this._callbacks.isAllowRemoteControlEnabled?.() || false;
+        if (isAllowRemoteControlEnabled) {
+            const isTrackChangeAllowed = this._callbacks.isTrackChangeRemoteControlAllowed?.() ?? true;
+            if (!isTrackChangeAllowed) {
+                log('⏹️ Track change blocked: remoteSync.trackChange is false');
+                return false;
+            }
+        }
+
         const prevTrack = this._playlist.prev();
         if (prevTrack) {
             this._callbacks.onPlayTrack(prevTrack.src);
